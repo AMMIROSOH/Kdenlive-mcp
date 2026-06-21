@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { posix, resolve, win32 } from 'node:path';
 import { createHash } from 'node:crypto';
 
 import {
@@ -73,10 +73,15 @@ function projectDuration(project: Project): number {
 }
 
 function assetResource(asset: Asset, projectRoot: string): string {
-  const path =
-    asset.location.kind === 'managed'
-      ? resolve(projectRoot, asset.location.path)
-      : asset.location.path;
+  let path = asset.location.path;
+  if (asset.location.kind === 'managed') {
+    path =
+      /^[A-Za-z]:[\\/]/u.test(projectRoot) || projectRoot.startsWith('\\\\')
+        ? win32.resolve(projectRoot, path)
+        : projectRoot.startsWith('/')
+          ? posix.resolve(projectRoot, path)
+          : resolve(projectRoot, path);
+  }
   return path.replaceAll('\\', '/');
 }
 
