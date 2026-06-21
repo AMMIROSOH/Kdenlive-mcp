@@ -151,7 +151,8 @@ export class ProjectStore {
   }
 
   async recoverPortableProject(): Promise<void> {
-    await atomicWrite(this.projectPath, this.#currentRow().project_json);
+    const migrated = deserializeProject(this.#currentRow().project_json);
+    await atomicWrite(this.projectPath, serializeProject(migrated));
   }
 
   async mutate(

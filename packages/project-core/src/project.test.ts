@@ -41,7 +41,16 @@ describe('project schema and serialization', () => {
       assets: project.assets,
       tracks: project.tracks,
     };
-    expect(deserializeProject(JSON.stringify(legacy)).schemaVersion).toBe(1);
+    expect(deserializeProject(JSON.stringify(legacy)).schemaVersion).toBe(2);
+    const versionOne = {
+      ...project,
+      schemaVersion: 1,
+      texts: undefined,
+    };
+    expect(deserializeProject(JSON.stringify(versionOne))).toMatchObject({
+      schemaVersion: 2,
+      texts: [],
+    });
     expect(() => deserializeProject('{"schemaVersion":99}')).toThrow(
       UnsupportedProjectVersionError,
     );

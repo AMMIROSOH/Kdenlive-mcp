@@ -6,6 +6,7 @@ export {
   effectSchema,
   frameSchema,
   markerSchema,
+  keyframeSchema,
   mediaProbeSchema,
   positiveRationalSchema,
   projectSchema,
@@ -13,13 +14,20 @@ export {
   reduceRational,
   trackSchema,
   transitionSchema,
+  textOverlaySchema,
   uuidSchema,
   type Asset,
+  type Caption,
   type Clip,
+  type Effect,
+  type Keyframe,
+  type Marker,
   type MediaProbe,
   type Project,
   type ProjectSettings,
   type Track,
+  type TextOverlay,
+  type Transition,
 } from './schema.js';
 export {
   cloneProject,
@@ -66,3 +74,63 @@ export {
   type ValidationCapabilities,
   type ValidationOptions,
 } from './validator.js';
+export {
+  InvalidTimelineEditError,
+  TimelineEditError,
+  clipDuration,
+  clipEnd,
+  type EditResult,
+} from './editing.js';
+export {
+  queryTimeline,
+  type TimelineQueryOptions,
+  type TimelineView,
+} from './timeline-query.js';
+export {
+  addTrack,
+  addClips,
+  createTrack,
+  type PlacementOptions,
+  type PlacementRequest,
+} from './placement.js';
+export {
+  moveClips,
+  removeClips,
+  rippleDeleteRanges,
+  setClipSpeed,
+  slipClip,
+  splitClip,
+  trimClip,
+  type RippleRange,
+} from './structural.js';
+export {
+  setClipProperties,
+  setKeyframes,
+  type ClipPropertyPatch,
+} from './properties.js';
+export {
+  DEFAULT_TEXT_STYLE,
+  addCaptions,
+  addMarkers,
+  addTexts,
+  addTransition,
+  exportYouTubeChapters,
+  removeCaptions,
+  removeMarkers,
+  removeTexts,
+  removeTransition,
+  setEffects,
+  updateCaptions,
+  updateMarkers,
+  updateTexts,
+  updateTransition,
+  type EffectInput,
+} from './creative.js';
+export { commitEdit } from './edit-transaction.js';
+export {
+  buildEffectCatalog,
+  type EffectCatalog,
+  type EffectCatalogEntry,
+  type EffectParameterDefinition,
+} from './effect-catalog.js';
+export { exportSrt, exportVtt, importCaptions } from './caption-io.js';

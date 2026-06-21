@@ -49,6 +49,7 @@ export function createProject(
     assets: [],
     tracks: [],
     transitions: [],
+    texts: [],
     captions: [],
     markers: [],
   });

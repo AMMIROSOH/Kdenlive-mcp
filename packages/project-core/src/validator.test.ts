@@ -52,7 +52,9 @@ function clip(id: string, start: number): Clip {
     linkedClipIds: [],
     effects: [],
     transform: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
+    crop: { top: 0, right: 0, bottom: 0, left: 0 },
     audio: { volume: 1, pan: 0, muted: false },
+    propertyKeyframes: {},
   };
 }
 

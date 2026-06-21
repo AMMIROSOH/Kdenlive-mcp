@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CURRENT_SCHEMA_VERSION = 1 as const;
+export const CURRENT_SCHEMA_VERSION = 2 as const;
 
 export const uuidSchema = z.uuid();
 export const frameSchema = z.int().nonnegative();
@@ -71,7 +71,7 @@ export const assetSchema = z.object({
   probe: mediaProbeSchema,
 });
 
-const keyframeSchema = z.object({
+export const keyframeSchema = z.object({
   id: uuidSchema,
   frame: frameSchema,
   value: z.union([z.number(), z.string(), z.boolean()]),
@@ -104,6 +104,14 @@ export const clipSchema = z.object({
     height: z.number().positive(),
     rotation: z.number(),
   }),
+  crop: z
+    .object({
+      top: z.number().nonnegative(),
+      right: z.number().nonnegative(),
+      bottom: z.number().nonnegative(),
+      left: z.number().nonnegative(),
+    })
+    .default({ top: 0, right: 0, bottom: 0, left: 0 }),
   opacity: z.number().min(0).max(1),
   audio: z.object({
     volume: z.number().nonnegative(),
@@ -111,6 +119,7 @@ export const clipSchema = z.object({
     muted: z.boolean(),
   }),
   linkedClipIds: z.array(uuidSchema),
+  propertyKeyframes: z.record(z.string(), z.array(keyframeSchema)).default({}),
   effects: z.array(effectSchema),
 });
 
@@ -158,6 +167,26 @@ export const markerSchema = z.object({
   color: z.string().regex(/^#[a-fA-F0-9]{6}$/u),
 });
 
+export const textOverlaySchema = z.object({
+  id: uuidSchema,
+  start: frameSchema,
+  end: z.int().positive(),
+  text: z.string().min(1),
+  style: z.object({
+    preset: z.string().min(1),
+    fontFamily: z.string().min(1),
+    fontSize: z.number().positive(),
+    color: z.string().regex(/^#[a-fA-F0-9]{8}$/u),
+    backgroundColor: z.string().regex(/^#[a-fA-F0-9]{8}$/u),
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().positive().max(1),
+    height: z.number().positive().max(1),
+    horizontalAlign: z.enum(['left', 'center', 'right']),
+    verticalAlign: z.enum(['top', 'middle', 'bottom']),
+  }),
+});
+
 export const projectSchema = z.object({
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
   id: uuidSchema,
@@ -169,6 +198,7 @@ export const projectSchema = z.object({
   assets: z.array(assetSchema),
   tracks: z.array(trackSchema),
   transitions: z.array(transitionSchema),
+  texts: z.array(textOverlaySchema).default([]),
   captions: z.array(captionSchema),
   markers: z.array(markerSchema),
 });
@@ -179,6 +209,12 @@ export type Asset = z.infer<typeof assetSchema>;
 export type MediaProbe = z.infer<typeof mediaProbeSchema>;
 export type Track = z.infer<typeof trackSchema>;
 export type Clip = z.infer<typeof clipSchema>;
+export type Keyframe = z.infer<typeof keyframeSchema>;
+export type Effect = z.infer<typeof effectSchema>;
+export type Transition = z.infer<typeof transitionSchema>;
+export type Caption = z.infer<typeof captionSchema>;
+export type Marker = z.infer<typeof markerSchema>;
+export type TextOverlay = z.infer<typeof textOverlaySchema>;
 
 function greatestCommonDivisor(left: number, right: number): number {
   let a = Math.abs(left);

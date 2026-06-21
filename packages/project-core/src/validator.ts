@@ -76,6 +76,9 @@ function collectIds(project: Project): readonly { id: string; path: string }[] {
   project.transitions.forEach((item, index) =>
     ids.push({ id: item.id, path: `transitions.${String(index)}.id` }),
   );
+  project.texts.forEach((item, index) =>
+    ids.push({ id: item.id, path: `texts.${String(index)}.id` }),
+  );
   project.captions.forEach((item, index) =>
     ids.push({ id: item.id, path: `captions.${String(index)}.id` }),
   );
@@ -93,6 +96,44 @@ function validateClip(
   capabilities: ValidationCapabilities | undefined,
 ): ProjectDiagnostic[] {
   const output: ProjectDiagnostic[] = [];
+  const duration =
+    clip.sourceOut > clip.sourceIn
+      ? clipDurationFrames(clip.sourceIn, clip.sourceOut, clip.speed)
+      : 0;
+  const validateKeyframeMap = (
+    keyframes: Clip['propertyKeyframes'],
+    keyframePath: string,
+    ownerId: string,
+  ): void => {
+    for (const [property, values] of Object.entries(keyframes)) {
+      const frames = new Set<number>();
+      for (const keyframe of values) {
+        if (keyframe.frame >= duration) {
+          output.push(
+            diagnostic(
+              'KEYFRAME_OUTSIDE_CLIP',
+              'error',
+              'Keyframe must be inside the clip duration',
+              `${keyframePath}.${property}`,
+              { entityId: keyframe.id, relatedIds: [ownerId, clip.id] },
+            ),
+          );
+        }
+        if (frames.has(keyframe.frame)) {
+          output.push(
+            diagnostic(
+              'DUPLICATE_KEYFRAME_FRAME',
+              'error',
+              `Multiple keyframes target frame ${String(keyframe.frame)}`,
+              `${keyframePath}.${property}`,
+              { entityId: keyframe.id, relatedIds: [ownerId, clip.id] },
+            ),
+          );
+        }
+        frames.add(keyframe.frame);
+      }
+    }
+  };
   if (clip.sourceOut <= clip.sourceIn) {
     output.push(
       diagnostic(
@@ -120,6 +161,11 @@ function validateClip(
     );
     return output;
   }
+  validateKeyframeMap(
+    clip.propertyKeyframes,
+    `${path}.propertyKeyframes`,
+    clip.id,
+  );
   const compatible =
     track.kind === 'video'
       ? ['video', 'image', 'av'].includes(asset.kind)
@@ -157,6 +203,11 @@ function validateClip(
     );
   }
   for (const [effectIndex, effect] of clip.effects.entries()) {
+    validateKeyframeMap(
+      effect.keyframes,
+      `${path}.effects.${String(effectIndex)}.keyframes`,
+      effect.id,
+    );
     if (
       capabilities?.effects !== undefined &&
       !capabilities.effects.includes(effect.service)
@@ -565,6 +616,37 @@ export async function validateProject(
           {
             entityId: caption.id,
             relatedIds: [previous.id],
+          },
+        ),
+      );
+    }
+  });
+  project.texts.forEach((text, index) => {
+    if (text.end <= text.start) {
+      output.push(
+        diagnostic(
+          'TEXT_INVALID_RANGE',
+          'error',
+          'Text end must be after start',
+          `texts.${String(index)}`,
+          { entityId: text.id },
+        ),
+      );
+    }
+    const horizontalSafe =
+      text.style.x >= 0.05 && text.style.x + text.style.width <= 0.95;
+    const verticalSafe =
+      text.style.y >= 0.05 && text.style.y + text.style.height <= 0.95;
+    if (!horizontalSafe || !verticalSafe) {
+      output.push(
+        diagnostic(
+          'TEXT_OUTSIDE_SAFE_AREA',
+          'warning',
+          'Text extends outside the 5% title-safe area',
+          `texts.${String(index)}.style`,
+          {
+            entityId: text.id,
+            hint: 'Move or resize the text inside the safe area.',
           },
         ),
       );

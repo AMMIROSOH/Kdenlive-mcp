@@ -6,7 +6,7 @@ operate on that file. Generated MLT or Kdenlive XML is never canonical state.
 
 ## Compatibility
 
-- Current `schemaVersion`: `1`.
+- Current `schemaVersion`: `2`.
 - Loaders migrate known older versions before validation.
 - Unknown future versions are rejected; they are never interpreted as current.
 - Serialization validates the model, sorts object keys recursively, preserves
@@ -28,6 +28,7 @@ operate on that file. Generated MLT or Kdenlive XML is never canonical state.
 | `assets`      | Hashed external/managed media references and normalized probe metadata  |
 | `tracks`      | Ordered video/audio tracks containing ordered clip arrays               |
 | `transitions` | Track-local transitions referencing adjacent clips                      |
+| `texts`       | Styled title/lower-third overlays with normalized canvas geometry       |
 | `captions`    | Styled frame ranges independent of media tracks                         |
 | `markers`     | Frame markers, chapters, and comments                                   |
 
@@ -35,6 +36,11 @@ The executable Zod definitions in `packages/project-core/src/schema.ts` are
 authoritative. Semantic rules—including references, track compatibility,
 overlaps, source bounds, runtime capabilities, and media availability—are applied
 by `validateProject` and before every store commit.
+
+Clips include transform, crop, opacity, audio properties, ordered effects, and
+clip-local property/effect keyframes. Keyframes support `linear`, `hold`, and
+`smooth` interpolation and must fall inside the current clip duration. Structural
+edits transform those local frame coordinates when trims, splits, or speed change.
 
 ## Persistence and revisions
 

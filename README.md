@@ -10,6 +10,8 @@ complete implementation sequence is in [`docs/roadmap.md`](docs/roadmap.md), and
 Milestone 1 implementation status and project-format rules are documented in
 [`docs/milestone-1.md`](docs/milestone-1.md) and
 [`docs/project-schema.md`](docs/project-schema.md).
+Timeline query and editing-engine status is tracked in
+[`docs/milestone-2.md`](docs/milestone-2.md).
 
 ## Prerequisites
 
