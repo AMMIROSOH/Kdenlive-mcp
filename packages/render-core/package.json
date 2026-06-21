@@ -1,0 +1,19 @@
+{
+  "name": "@kdenlive-mcp/render-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./dist/index.js",
+  "scripts": {
+    "acceptance": "tsx src/acceptance-cli.ts",
+    "build": "tsc -b",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@kdenlive-mcp/project-core": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  }
+}

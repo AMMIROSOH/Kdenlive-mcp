@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/runtime-probe" },
     { "path": "packages/mlt-spike" },
-    { "path": "packages/project-core" }
+    { "path": "packages/project-core" },
+    { "path": "packages/render-core" }
   ]
 }

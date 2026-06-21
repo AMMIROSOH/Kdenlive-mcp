@@ -23,6 +23,7 @@
     "spike:prepare": "pnpm --filter @kdenlive-mcp/mlt-spike prepare-fixtures",
     "spike:compile": "pnpm --filter @kdenlive-mcp/mlt-spike compile",
     "spike:render": "pnpm --filter @kdenlive-mcp/mlt-spike render",
+    "render:acceptance": "pnpm --filter @kdenlive-mcp/render-core acceptance",
     "fixtures:milestone-1": "pnpm --filter @kdenlive-mcp/project-core fixtures",
     "worker:check": "python -m pytest apps/analysis-worker && python -m mypy apps/analysis-worker/src"
   },

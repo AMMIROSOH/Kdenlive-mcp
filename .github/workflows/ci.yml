@@ -58,6 +58,7 @@ jobs:
       - run: pnpm test:runtime
       - run: pnpm spike:prepare
       - run: pnpm spike:render
+      - run: pnpm render:acceptance
       - uses: actions/upload-artifact@v4
         with:
           name: render-smoke-linux
@@ -91,6 +92,7 @@ jobs:
       - run: pnpm test:runtime
       - run: pnpm spike:prepare
       - run: pnpm spike:render
+      - run: pnpm render:acceptance
       - uses: actions/upload-artifact@v4
         with:
           name: render-smoke-windows

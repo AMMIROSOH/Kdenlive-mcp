@@ -12,6 +12,8 @@ Milestone 1 implementation status and project-format rules are documented in
 [`docs/project-schema.md`](docs/project-schema.md).
 Timeline query and editing-engine status is tracked in
 [`docs/milestone-2.md`](docs/milestone-2.md).
+Rendering, durable jobs, previews, profiles, and output verification are tracked
+in [`docs/milestone-3.md`](docs/milestone-3.md).
 
 ## Prerequisites
 
@@ -27,6 +29,7 @@ pnpm fixtures:milestone-1 -- --require-runtime
 pnpm test:runtime
 pnpm spike:prepare
 pnpm spike:render
+pnpm render:acceptance
 ```
 
 On Windows, the standard `C:\Program Files\Kdenlive` installation is discovered
@@ -35,5 +38,6 @@ automatically. A portable installation can be selected with `KDENLIVE_ROOT` or
 
 ## Scope
 
-No MCP server or editable project schema exists yet. Those begin in later
-milestones; adding them to this spike would prematurely freeze public contracts.
+Milestones 0-3 are implemented: the canonical project/editing model and rendering
+stack are available as workspace packages. The public MCP transport and tool
+surface begins in Milestone 4.

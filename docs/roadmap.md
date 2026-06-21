@@ -5,7 +5,8 @@ one focused implementation session and produce a reviewable artifact or test.
 Issue IDs remain stable; suffixes identify the smaller work chunks.
 
 Status lives in the milestone documents and issue tracker, not in this overview.
-Milestone 0 has its detailed status in [`milestone-0.md`](milestone-0.md).
+Detailed status is recorded in the matching `milestone-N.md` document; Milestones
+0 through 3 are implemented.
 
 ## Working order
 
@@ -180,6 +181,9 @@ Milestone 2 exit: every gesture is batched, atomic, revision-checked, reversible
 deterministic, and property-tested against timeline invariants.
 
 ## Milestone 3 — Rendering and inspection
+
+Implementation and acceptance evidence are tracked in
+[`milestone-3.md`](milestone-3.md).
 
 ### 3.1 MLT compiler
 
