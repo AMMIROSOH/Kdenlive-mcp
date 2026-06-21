@@ -74,7 +74,12 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: choco install ffmpeg-shared kdenlive --no-progress -y
+      - shell: pwsh
+        run: |
+          choco install kdenlive --no-progress -y
+          if (-not (Get-Command ffmpeg.exe -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg --no-progress -y
+          }
       - run: pnpm install --frozen-lockfile
       - shell: pwsh
         run: |
