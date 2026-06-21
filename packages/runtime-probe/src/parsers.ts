@@ -9,7 +9,7 @@ export function parseVersion(
   const patterns = {
     ffmpeg: /ffmpeg version\s+([^\s]+)/i,
     ffprobe: /ffprobe version\s+([^\s]+)/i,
-    mlt: /(?:melt|MLT)\s+(?:version\s+)?([0-9]+(?:\.[0-9]+){1,3})/i,
+    mlt: /(?:melt(?:\.exe)?|MLT)\s+(?:version\s+)?([0-9]+(?:\.[0-9]+){1,3})/i,
   } as const;
   return patterns[product].exec(output)?.[1] ?? null;
 }
@@ -20,6 +20,15 @@ export function parseFfmpegTable(output: string): string[] {
     const match = /^\s*[.A-Z]{3,8}\s+([a-zA-Z0-9_][a-zA-Z0-9_.-]*)\s/u.exec(
       line,
     );
+    if (match?.[1] !== undefined) names.push(match[1]);
+  }
+  return uniqueSorted(names);
+}
+
+export function parseFfmpegFilters(output: string): string[] {
+  const names: string[] = [];
+  for (const line of output.split(/\r?\n/u)) {
+    const match = /^\s*[.A-Z]{2}\s+([a-zA-Z0-9_][a-zA-Z0-9_.-]*)\s/u.exec(line);
     if (match?.[1] !== undefined) names.push(match[1]);
   }
   return uniqueSorted(names);

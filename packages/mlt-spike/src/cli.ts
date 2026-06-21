@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { compileSpikeProject, defaultSpikeProject } from './compiler.js';
@@ -12,7 +13,25 @@ const XML_PATH = join(ARTIFACTS, 'project.mlt');
 const VIDEO_PATH = join(ARTIFACTS, 'milestone-0.mkv');
 
 function executable(environmentName: string, fallback: string): string {
-  return process.env[environmentName] ?? fallback;
+  const configured = process.env[environmentName];
+  if (configured !== undefined) return configured;
+  const roots = [
+    process.env.KDENLIVE_ROOT,
+    process.env.MLT_ROOT,
+    process.platform === 'win32' && process.env.ProgramFiles !== undefined
+      ? join(process.env.ProgramFiles, 'Kdenlive')
+      : undefined,
+  ].filter((root): root is string => root !== undefined && root !== '');
+  const fileName = process.platform === 'win32' ? `${fallback}.exe` : fallback;
+  for (const root of roots) {
+    for (const candidate of [
+      join(root, 'bin', fileName),
+      join(root, fileName),
+    ]) {
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return fallback;
 }
 
 async function compile(): Promise<void> {

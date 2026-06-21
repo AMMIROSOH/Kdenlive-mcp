@@ -56,3 +56,9 @@ the best available MLT and reports its capability snapshot for now.
 The milestone closes after 0.1.d, 0.3.f, 0.4.f, and 0.4.g are evidenced. The
 repository intentionally marks environment/legal checks as pending rather than
 claiming they were completed by source code alone.
+
+Local Windows evidence on 2026-06-21: Kdenlive 26.04.2, MLT 7.39.0, FFmpeg
+8.0.1, and ffprobe 8.0.1 were discovered automatically under
+`C:\Program Files\Kdenlive`. The 900-frame/30-second FFV1+PCM spike rendered,
+validated, and produced decoded frame/audio hashes. Linux and cross-platform hash
+comparison remain pending.

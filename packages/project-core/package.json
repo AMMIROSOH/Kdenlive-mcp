@@ -1,0 +1,18 @@
+{
+  "name": "@kdenlive-mcp/project-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "fixtures": "tsx src/fixture-cli.ts",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  }
+}

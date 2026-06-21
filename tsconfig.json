@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/runtime-probe" },
-    { "path": "packages/mlt-spike" }
+    { "path": "packages/mlt-spike" },
+    { "path": "packages/project-core" }
   ]
 }

@@ -54,6 +54,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg melt
       - run: pnpm install --frozen-lockfile
       - run: pnpm capabilities -- --output artifacts/capabilities-linux.json
+      - run: pnpm fixtures:milestone-1 -- --require-runtime
+      - run: pnpm test:runtime
       - run: pnpm spike:prepare
       - run: pnpm spike:render
       - uses: actions/upload-artifact@v4
@@ -80,6 +82,8 @@ jobs:
           if (-not $melt) { throw "melt.exe not found in Kdenlive installation" }
           "MELT_PATH=$($melt.FullName)" >> $env:GITHUB_ENV
       - run: pnpm capabilities -- --output artifacts/capabilities-windows.json
+      - run: pnpm fixtures:milestone-1 -- --require-runtime
+      - run: pnpm test:runtime
       - run: pnpm spike:prepare
       - run: pnpm spike:render
       - uses: actions/upload-artifact@v4

@@ -15,6 +15,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
+    "test:runtime": "vitest run packages/project-core/src/media.runtime.test.ts",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -b --pretty false",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
@@ -22,6 +23,7 @@
     "spike:prepare": "pnpm --filter @kdenlive-mcp/mlt-spike prepare-fixtures",
     "spike:compile": "pnpm --filter @kdenlive-mcp/mlt-spike compile",
     "spike:render": "pnpm --filter @kdenlive-mcp/mlt-spike render",
+    "fixtures:milestone-1": "pnpm --filter @kdenlive-mcp/project-core fixtures",
     "worker:check": "python -m pytest apps/analysis-worker && python -m mypy apps/analysis-worker/src"
   },
   "devDependencies": {

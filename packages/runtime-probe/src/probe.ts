@@ -1,7 +1,10 @@
 import { arch, platform } from 'node:os';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { capabilitySnapshotSchema, type CapabilitySnapshot } from './schema.js';
 import {
+  parseFfmpegFilters,
   parseFfmpegTable,
   parseHardwareAccelerationMethods,
   parseMltServices,
@@ -15,6 +18,33 @@ interface ProbeOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly now?: () => Date;
   readonly runner: CommandRunner;
+}
+
+function configuredRuntimePath(
+  env: NodeJS.ProcessEnv,
+  explicitName: 'FFMPEG_PATH' | 'FFPROBE_PATH' | 'MELT_PATH',
+  executable: 'ffmpeg' | 'ffprobe' | 'melt',
+): string | undefined {
+  const explicit = env[explicitName];
+  if (explicit !== undefined) return explicit;
+  const roots = [
+    env.KDENLIVE_ROOT,
+    env.MLT_ROOT,
+    process.platform === 'win32' && env.ProgramFiles !== undefined
+      ? join(env.ProgramFiles, 'Kdenlive')
+      : undefined,
+  ].filter((root): root is string => root !== undefined && root !== '');
+  const fileName =
+    process.platform === 'win32' ? `${executable}.exe` : executable;
+  for (const root of roots) {
+    for (const candidate of [
+      join(root, 'bin', fileName),
+      join(root, fileName),
+    ]) {
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
 }
 
 function combined(result: CommandResult): string {
@@ -47,10 +77,17 @@ export async function probeCapabilities(
   options: ProbeOptions,
 ): Promise<CapabilitySnapshot> {
   const env = options.env ?? process.env;
+  const ffmpegConfigured = configuredRuntimePath(env, 'FFMPEG_PATH', 'ffmpeg');
+  const ffprobeConfigured = configuredRuntimePath(
+    env,
+    'FFPROBE_PATH',
+    'ffprobe',
+  );
+  const meltConfigured = configuredRuntimePath(env, 'MELT_PATH', 'melt');
   const [ffmpegPath, ffprobePath, meltPath] = await Promise.all([
-    resolveExecutable('ffmpeg', env.FFMPEG_PATH, { path: env.PATH }),
-    resolveExecutable('ffprobe', env.FFPROBE_PATH, { path: env.PATH }),
-    resolveExecutable('melt', env.MELT_PATH, { path: env.PATH }),
+    resolveExecutable('ffmpeg', ffmpegConfigured, { path: env.PATH }),
+    resolveExecutable('ffprobe', ffprobeConfigured, { path: env.PATH }),
+    resolveExecutable('melt', meltConfigured, { path: env.PATH }),
   ]);
 
   const unavailable = {
@@ -135,7 +172,7 @@ async function probeFfmpeg(
         : `${String(failures.length)} FFmpeg queries failed`,
     codecs: parseFfmpegTable(combined(codecs)),
     encoders: parsedEncoders,
-    filters: parseFfmpegTable(combined(filters)),
+    filters: parseFfmpegFilters(combined(filters)),
     hardwareAccelerationMethods: parseHardwareAccelerationMethods(
       combined(hwaccels),
     ),

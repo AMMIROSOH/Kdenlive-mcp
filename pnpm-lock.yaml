@@ -38,6 +38,16 @@ importers:
         specifier: ^4.22.4
         version: 4.22.4
 
+  packages/project-core:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+
   packages/runtime-probe:
     dependencies:
       zod:

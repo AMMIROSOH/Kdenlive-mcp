@@ -9,6 +9,6 @@ __pycache__/
 .ruff_cache/
 *.pyc
 artifacts/
+packages/mlt-spike/fixtures/
 tmp/
 .env
-
