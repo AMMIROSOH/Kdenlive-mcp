@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -e "apps/analysis-worker[dev]"
+      - run: python -m ruff check apps/analysis-worker
+      - run: python -m mypy apps/analysis-worker/src
+      - run: python -m pytest apps/analysis-worker
+
+  render-smoke-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg melt
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm capabilities -- --output artifacts/capabilities-linux.json
+      - run: pnpm spike:prepare
+      - run: pnpm spike:render
+      - uses: actions/upload-artifact@v4
+        with:
+          name: render-smoke-linux
+          path: artifacts/
+
+  render-smoke-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: choco install ffmpeg-shared kdenlive --no-progress -y
+      - run: pnpm install --frozen-lockfile
+      - shell: pwsh
+        run: |
+          $melt = Get-ChildItem "C:\Program Files\kdenlive" -Recurse -Filter melt.exe | Select-Object -First 1
+          if (-not $melt) { throw "melt.exe not found in Kdenlive installation" }
+          "MELT_PATH=$($melt.FullName)" >> $env:GITHUB_ENV
+      - run: pnpm capabilities -- --output artifacts/capabilities-windows.json
+      - run: pnpm spike:prepare
+      - run: pnpm spike:render
+      - uses: actions/upload-artifact@v4
+        with:
+          name: render-smoke-windows
+          path: artifacts/

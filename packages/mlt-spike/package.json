@@ -1,0 +1,16 @@
+{
+  "name": "@kdenlive-mcp/mlt-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "compile": "tsx src/cli.ts compile",
+    "prepare-fixtures": "tsx src/cli.ts prepare",
+    "render": "tsx src/cli.ts render",
+    "test": "vitest run src"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  }
+}

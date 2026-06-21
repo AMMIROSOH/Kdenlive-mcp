@@ -1,0 +1,30 @@
+name: Roadmap task
+description: Implement one independently assignable roadmap chunk.
+title: '[M?.?] '
+labels: ['roadmap']
+body:
+  - type: input
+    id: task
+    attributes:
+      label: Roadmap ID
+      placeholder: '0.3.c'
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: State the observable result, not an implementation preference.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance checks
+      placeholder: '- [ ] command or observable check'
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and risks

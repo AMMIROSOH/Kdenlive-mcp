@@ -1,0 +1,37 @@
+{
+  "name": "kdenlive-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Headless, MLT-backed video editing foundation for MCP clients",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@9.5.0",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -b --pretty false",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "capabilities": "pnpm --filter @kdenlive-mcp/runtime-probe probe",
+    "spike:prepare": "pnpm --filter @kdenlive-mcp/mlt-spike prepare-fixtures",
+    "spike:compile": "pnpm --filter @kdenlive-mcp/mlt-spike compile",
+    "spike:render": "pnpm --filter @kdenlive-mcp/mlt-spike render",
+    "worker:check": "python -m pytest apps/analysis-worker && python -m mypy apps/analysis-worker/src"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.15.0",
+    "@vitest/coverage-v8": "^4.1.9",
+    "eslint": "^10.0.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.0",
+    "vitest": "^4.1.9"
+  }
+}

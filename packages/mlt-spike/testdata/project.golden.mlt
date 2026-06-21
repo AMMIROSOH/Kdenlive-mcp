@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mlt LC_NUMERIC="C" producer="main" version="7.38.0">
+  <profile description="Kdenlive MCP deterministic 720p30" width="1280" height="720" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="16" display_aspect_den="9" frame_rate_num="30" frame_rate_den="1" colorspace="709"/>
+  <producer id="clip-a" in="0" out="449">
+    <property name="mlt_service">avformat</property>
+    <property name="resource">../../packages/mlt-spike/fixtures/clip-a.mkv</property>
+    <filter id="clip-a-effect" in="0" out="449">
+      <property name="mlt_service">brightness</property>
+      <property name="level">1.08</property>
+    </filter>
+  </producer>
+  <producer id="clip-b" in="0" out="479">
+    <property name="mlt_service">avformat</property>
+    <property name="resource">../../packages/mlt-spike/fixtures/clip-b.mkv</property>
+  </producer>
+  <producer id="audio" in="0" out="899">
+    <property name="mlt_service">avformat</property>
+    <property name="resource">../../packages/mlt-spike/fixtures/tone.wav</property>
+  </producer>
+  <producer id="title" in="0" out="179">
+    <property name="mlt_service">qtext</property>
+    <property name="text">Kdenlive MCP — Milestone 0</property>
+    <property name="fgcolour">0xffffffff</property>
+    <property name="bgcolour">0x00000000</property>
+    <property name="family">Sans</property>
+    <property name="size">64</property>
+    <property name="weight">700</property>
+    <property name="geometry">0%/72%:100%x20%:100</property>
+    <property name="halign">center</property>
+    <property name="valign">middle</property>
+  </producer>
+  <playlist id="track-base">
+    <entry producer="clip-a" in="0" out="449"/>
+    <blank length="450"/>
+  </playlist>
+  <playlist id="track-incoming">
+    <blank length="420"/>
+    <entry producer="clip-b" in="0" out="479"/>
+  </playlist>
+  <playlist id="track-audio">
+    <entry producer="audio" in="0" out="899"/>
+  </playlist>
+  <playlist id="track-title">
+    <blank length="60"/>
+    <entry producer="title" in="0" out="179"/>
+    <blank length="660"/>
+  </playlist>
+  <tractor id="main" in="0" out="899">
+    <track producer="track-base"/>
+    <track producer="track-incoming"/>
+    <track producer="track-audio" hide="video"/>
+    <track producer="track-title" hide="audio"/>
+    <transition id="dissolve" in="420" out="449">
+      <property name="mlt_service">luma</property>
+      <property name="a_track">0</property>
+      <property name="b_track">1</property>
+    </transition>
+    <transition id="audio-mix" in="0" out="899">
+      <property name="mlt_service">mix</property>
+      <property name="a_track">0</property>
+      <property name="b_track">2</property>
+      <property name="always_active">1</property>
+      <property name="sum">1</property>
+    </transition>
+    <transition id="title-composite" in="60" out="239">
+      <property name="mlt_service">qtblend</property>
+      <property name="a_track">0</property>
+      <property name="b_track">3</property>
+      <property name="always_active">1</property>
+    </transition>
+  </tractor>
+</mlt>
+

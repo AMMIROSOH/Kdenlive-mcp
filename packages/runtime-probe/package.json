@@ -1,0 +1,21 @@
+{
+  "name": "@kdenlive-mcp/runtime-probe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./dist/index.js",
+  "bin": {
+    "kdenlive-mcp-probe": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "probe": "tsx src/cli.ts",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4"
+  }
+}

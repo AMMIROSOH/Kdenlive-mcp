@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kdenlive-mcp-analysis-worker"
+version = "0.0.0"
+description = "Supervised local analysis worker shell for Kdenlive MCP"
+requires-python = ">=3.12,<3.13"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.15,<2",
+  "pytest>=8.3,<9",
+  "ruff>=0.11,<1",
+]
+
+[project.scripts]
+kdenlive-mcp-analysis-worker = "kdenlive_mcp_analysis_worker.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kdenlive_mcp_analysis_worker"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
