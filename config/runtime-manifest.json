@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "releaseStrategy": "external-runtime",
+  "node": {
+    "minimum": "22.0.0",
+    "bundled": false
+  },
+  "tested": {
+    "windows": {
+      "kdenlive": "26.04.2",
+      "mlt": "7.39.0",
+      "ffmpeg": "8.0.1"
+    },
+    "linux": {
+      "mlt": ">=7.22",
+      "ffmpeg": ">=6.1"
+    }
+  },
+  "requiredExecutables": ["melt", "ffmpeg", "ffprobe"],
+  "requiredMltServices": {
+    "producers": ["avformat"],
+    "consumers": ["avformat"],
+    "filters": ["qtext"],
+    "transitions": ["mix", "qtblend"]
+  },
+  "requiredEncoders": ["ffv1", "pcm_s16le"],
+  "recommendedEncoders": ["libx264", "aac"],
+  "discoveryOrder": [
+    "FFMPEG_PATH/FFPROBE_PATH/MELT_PATH",
+    "KDENLIVE_ROOT/MLT_ROOT",
+    "standard Kdenlive installation directories",
+    "APPDIR and Linux system prefixes",
+    "PATH"
+  ]
+}

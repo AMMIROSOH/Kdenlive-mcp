@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 export type RuntimeExecutable = 'ffmpeg' | 'ffprobe' | 'melt';
 
@@ -14,6 +14,17 @@ export function resolveRuntimeExecutable(name: RuntimeExecutable): string {
     process.platform === 'win32' && process.env.ProgramFiles !== undefined
       ? join(process.env.ProgramFiles, 'Kdenlive')
       : undefined,
+    process.platform === 'win32' &&
+    process.env['ProgramFiles(x86)'] !== undefined
+      ? join(process.env['ProgramFiles(x86)'], 'Kdenlive')
+      : undefined,
+    process.platform === 'win32' && process.env.LOCALAPPDATA !== undefined
+      ? join(process.env.LOCALAPPDATA, 'Programs', 'Kdenlive')
+      : undefined,
+    process.env.APPDIR,
+    process.platform !== 'win32' ? '/usr' : undefined,
+    process.platform !== 'win32' ? '/usr/local' : undefined,
+    process.platform !== 'win32' ? '/opt/kdenlive' : undefined,
   ].filter((root): root is string => root !== undefined && root !== '');
   const fileName = process.platform === 'win32' ? `${name}.exe` : name;
   for (const root of roots) {
@@ -23,6 +34,11 @@ export function resolveRuntimeExecutable(name: RuntimeExecutable): string {
     ]) {
       if (existsSync(candidate)) return candidate;
     }
+  }
+  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+    if (directory === '') continue;
+    const candidate = join(directory, fileName);
+    if (existsSync(candidate)) return candidate;
   }
   return name;
 }

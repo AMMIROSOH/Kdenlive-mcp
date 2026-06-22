@@ -5,8 +5,9 @@ one focused implementation session and produce a reviewable artifact or test.
 Issue IDs remain stable; suffixes identify the smaller work chunks.
 
 Status lives in the milestone documents and issue tracker, not in this overview.
-Detailed status is recorded in the matching `milestone-N.md` document; Milestones
-0 through 4 are implemented.
+Detailed status is recorded in the matching `milestone-N.md` document. Milestones
+0 through 4 are implemented, Milestones 5 and 6 are coming soon/TODO, and
+Milestone 7 packages the implemented core as a public preview.
 
 ## Working order
 
@@ -302,6 +303,8 @@ over stdio and authenticated loopback HTTP; the security suite passes.
 
 ## Milestone 5 — Local media intelligence
 
+**Status: TODO / coming soon. Not included in the public preview.**
+
 ### 5.1 Analysis worker protocol
 
 - `5.1.a` Define versioned JSON-RPC-over-stdio request/result/error schemas.
@@ -361,6 +364,8 @@ and propose reviewed transcript edits with cached, source/timeline-mapped result
 
 ## Milestone 6 — Kdenlive interoperability and editing knowledge
 
+**Status: TODO / coming soon. Not included in the public preview.**
+
 ### 6.1 OTIO export/import
 
 - `6.1.a` Define the supported OTIO feature/fidelity matrix.
@@ -410,6 +415,10 @@ Milestone 6 exit: the documented common subset round-trips through OTIO/Kdenlive
 with explicit fidelity reports, and recipes/diagnostics are schema-tested.
 
 ## Milestone 7 — Public release
+
+Public-preview implementation and acceptance evidence are tracked in
+[`milestone-7.md`](milestone-7.md). Tasks that require deferred Milestones 5/6 or
+redistributing unaudited runtime binaries remain explicitly unchecked.
 
 ### 7.1 Windows and Linux packaging
 

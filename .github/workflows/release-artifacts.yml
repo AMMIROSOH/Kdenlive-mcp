@@ -1,0 +1,60 @@
+name: Release artifacts
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.5.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm docs:check
+      - run: pnpm sbom -- --output artifacts/release/sbom
+      - run: pnpm licenses:report -- --output artifacts/release/licenses
+      - run: pnpm package:release -- --platform ${{ matrix.platform }} --output artifacts/release
+      - uses: sigstore/cosign-installer@v3
+      - shell: bash
+        run: |
+          set -euo pipefail
+          for file in artifacts/release/*.zip artifacts/release/*.tar.gz artifacts/release/sbom/*.json; do
+            [ -f "$file" ] || continue
+            cosign sign-blob --yes "$file" --bundle "${file}.sigstore.json"
+          done
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            artifacts/release/*.zip
+            artifacts/release/*.tar.gz
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/release/*.zip
+            artifacts/release/*.tar.gz
+            artifacts/release/*.sha256
+            artifacts/release/*.sigstore.json
+            artifacts/release/sbom/*.json
+            artifacts/release/sbom/*.sigstore.json
+            artifacts/release/licenses/*

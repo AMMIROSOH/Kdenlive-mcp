@@ -1,46 +1,92 @@
 # Kdenlive MCP
 
-Foundation for a headless video editor that keeps a portable JSON project as its
-source of truth, compiles disposable MLT XML, and uses Kdenlive for review.
+Local-first video editing through the Model Context Protocol. Kdenlive MCP keeps
+a versioned JSON project as the source of truth, applies revision-checked timeline
+edits, compiles deterministic MLT, queues renders, generates previews, and verifies
+outputs using the Kdenlive/MLT and FFmpeg installation already on your computer.
 
-Milestone 0 covers feasibility only: architecture/licensing decisions, repository
-tooling, runtime discovery, and a deterministic 30-second rendering spike. The
-complete implementation sequence is in [`docs/roadmap.md`](docs/roadmap.md), and
-[`docs/milestone-0.md`](docs/milestone-0.md) tracks current foundation status.
-Milestone 1 implementation status and project-format rules are documented in
-[`docs/milestone-1.md`](docs/milestone-1.md) and
-[`docs/project-schema.md`](docs/project-schema.md).
-Timeline query and editing-engine status is tracked in
-[`docs/milestone-2.md`](docs/milestone-2.md).
-Rendering, durable jobs, previews, profiles, and output verification are tracked
-in [`docs/milestone-3.md`](docs/milestone-3.md).
-MCP transports, tools, resources, and security status are tracked in
-[`docs/milestone-4.md`](docs/milestone-4.md).
+> Public preview: Milestones 0-4 and 7 are implemented. Local AI analysis
+> (Milestone 5) and Kdenlive/OTIO round-trip interoperability (Milestone 6) are
+> planned and clearly marked as unavailable.
 
-## Prerequisites
+## What works
 
-- Node.js 22 or newer and pnpm 9
-- Python 3.12 for the future analysis worker
-- FFmpeg/ffprobe and MLT 7.38 (`melt`) on `PATH` for runtime/spike checks
+- Canonical projects with atomic revisions, checkpoints, undo, and redo.
+- Media ingest with allowed-root containment and managed/external modes.
+- Clip placement, linked A/V, ripple edits, properties, keyframes, effects,
+  transitions, text, captions, and markers.
+- Durable preview/export jobs, progress, cancellation, restart recovery, and
+  bounded artifacts.
+- Output duration, stream, A/V sync, loudness, clipping, black, and freeze checks.
+- MCP over stdio or authenticated loopback Streamable HTTP.
+- Automatic Kdenlive/MLT/FFmpeg discovery and an actionable doctor command.
 
-```shell
-pnpm install
-pnpm check
-pnpm capabilities -- --output artifacts/capabilities.json
-pnpm fixtures:milestone-1 -- --require-runtime
-pnpm test:runtime
-pnpm spike:prepare
-pnpm spike:render
-pnpm render:acceptance
-pnpm mcp:acceptance
+## Quick start
+
+Requirements: Node.js 22+, pnpm 9, and Kdenlive or separate MLT/FFmpeg tools.
+
+```powershell
+git clone https://github.com/AMMIROSOH/Kdenlive-mcp.git
+cd Kdenlive-mcp
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\install.ps1 -AddToPath
+kdenlive-mcp --doctor
 ```
 
-On Windows, the standard `C:\Program Files\Kdenlive` installation is discovered
-automatically. A portable installation can be selected with `KDENLIVE_ROOT` or
-`MLT_ROOT`; exact overrides are `MELT_PATH`, `FFMPEG_PATH`, and `FFPROBE_PATH`.
+Linux:
 
-## Scope
+```sh
+git clone https://github.com/AMMIROSOH/Kdenlive-mcp.git
+cd Kdenlive-mcp
+./scripts/install.sh
+~/.local/share/kdenlive-mcp/kdenlive-mcp-*/kdenlive-mcp --doctor
+```
 
-Milestones 0-4 are implemented: the canonical editing/rendering stack is exposed
-through stdio and authenticated loopback Streamable HTTP. Local media intelligence
-begins in Milestone 5.
+Then add the stdio command to your MCP client with an absolute allowed root:
+
+```text
+kdenlive-mcp --root /path/to/video-workspace --client-id my-mcp-client
+```
+
+See the complete [installation and client configuration guide](INSTALL.md).
+
+## Safety model
+
+- Files are limited to configured roots; symlink/traversal escapes are rejected.
+- Mutations require the exact current revision and remain undoable per client.
+- Render processes use argument arrays, no shell, bounded output/time, and a
+  restricted environment.
+- HTTP binds only to loopback and requires a generated bearer token.
+- Kdenlive, MLT, and FFmpeg binaries are not redistributed by this repository.
+
+Read the [threat model](docs/threat-model.md) and [security policy](SECURITY.md)
+before exposing the server to additional software.
+
+## Documentation
+
+- [Installation](INSTALL.md)
+- [Tutorial](docs/tutorial.md)
+- [MCP reference](docs/mcp-reference.md)
+- [Architecture and data ownership](docs/architecture.md)
+- [Runtime support](docs/runtime-support.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Roadmap](docs/roadmap.md)
+- [Contributing](CONTRIBUTING.md)
+
+## Development
+
+```shell
+pnpm install --frozen-lockfile
+pnpm check
+pnpm doctor
+pnpm render:acceptance
+pnpm mcp:acceptance
+pnpm docs:check
+pnpm sbom
+pnpm release:acceptance -- --platform windows
+```
+
+## License
+
+Apache-2.0 for this repository. External Kdenlive/MLT/FFmpeg installations retain
+their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).

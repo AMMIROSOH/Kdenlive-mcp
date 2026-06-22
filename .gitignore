@@ -12,3 +12,6 @@ artifacts/
 packages/mlt-spike/fixtures/
 tmp/
 .env
+.kdenlive-mcp/
+*.sqlite-wal
+*.sqlite-shm

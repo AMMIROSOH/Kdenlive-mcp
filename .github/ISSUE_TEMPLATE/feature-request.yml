@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a scoped capability or workflow
+title: '[Feature]: '
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the workflow limitation, not only a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+    validations:
+      required: true
+  - type: checkboxes
+    id: deferred
+    attributes:
+      label: Roadmap awareness
+      options:
+        - label: I checked whether this belongs to deferred Milestone 5 or 6 work.
+          required: true

@@ -33,6 +33,16 @@ function configuredRuntimePath(
     process.platform === 'win32' && env.ProgramFiles !== undefined
       ? join(env.ProgramFiles, 'Kdenlive')
       : undefined,
+    process.platform === 'win32' && env['ProgramFiles(x86)'] !== undefined
+      ? join(env['ProgramFiles(x86)'], 'Kdenlive')
+      : undefined,
+    process.platform === 'win32' && env.LOCALAPPDATA !== undefined
+      ? join(env.LOCALAPPDATA, 'Programs', 'Kdenlive')
+      : undefined,
+    env.APPDIR,
+    process.platform !== 'win32' ? '/usr' : undefined,
+    process.platform !== 'win32' ? '/usr/local' : undefined,
+    process.platform !== 'win32' ? '/opt/kdenlive' : undefined,
   ].filter((root): root is string => root !== undefined && root !== '');
   const fileName =
     process.platform === 'win32' ? `${executable}.exe` : executable;

@@ -1,7 +1,9 @@
-# Third-party notices (development inventory)
+# Third-party notices
 
-No third-party runtime binaries are currently committed to this repository.
-Package lockfiles and release SBOMs are authoritative for actual distributions.
+No Kdenlive, MLT, FFmpeg, Node, font, model, or other third-party runtime binary is
+committed or bundled in the public-preview archive. Package lockfiles, generated
+production-license inventories, and release SBOMs are authoritative for the Node
+application distribution.
 
 | Component          | Intended use                           | Typical license                             | Distribution action                                                     |
 | ------------------ | -------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------- |
@@ -12,5 +14,7 @@ Package lockfiles and release SBOMs are authoritative for actual distributions.
 | MCP TypeScript SDK | MCP protocol transports and schemas    | MIT                                         | Retain license notice and pin the tested protocol version               |
 | Python packages    | Analysis worker dependencies           | Per lockfile                                | Generate license report and SBOM for every release                      |
 
-Before bundling any runtime, complete the checklist in ADR 0001 and replace this
-development inventory with notices generated from the exact shipped artifacts.
+`pnpm licenses:report` generates the exact locked production package inventory.
+Before bundling any external runtime, complete the checklist in ADR 0001 and add
+notices, corresponding-source offers, build flags, modules, codecs, and provenance
+for the exact shipped binaries.

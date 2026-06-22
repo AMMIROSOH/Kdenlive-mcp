@@ -4,9 +4,7 @@ import { join, resolve } from 'node:path';
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { createBearerToken, startHttpServer } from './http.js';
-import { createMcpServer } from './server.js';
-import { WorkspaceService } from './workspace.js';
+import { runDoctor } from './doctor.js';
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -14,6 +12,63 @@ function argument(name: string): string | undefined {
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes('--version')) {
+    process.stdout.write('kdenlive-mcp 0.1.0\n');
+    return;
+  }
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    process.stdout.write(`Kdenlive MCP 0.1.0
+
+Usage: kdenlive-mcp [options]
+
+  --root <path>       Allowed project/media root (default: current directory)
+  --state <path>      Durable server state directory
+  --client-id <id>    Stable stdio ownership identity
+  --http              Use authenticated loopback Streamable HTTP
+  --port <number>     HTTP port (default: operating-system assigned)
+  --token-file <path> HTTP bearer-token file
+  --doctor            Probe Node, Kdenlive/MLT, FFmpeg, services, and codecs
+  --version           Print the version
+  --help              Print this help
+`);
+    return;
+  }
+  if (process.argv.includes('--doctor')) {
+    const report = await runDoctor();
+    const output = process.argv.includes('--json')
+      ? report
+      : {
+          schemaVersion: report.schemaVersion,
+          ok: report.ok,
+          checks: report.checks,
+          runtime: {
+            ffmpeg: {
+              path: report.capabilities.ffmpeg.path,
+              version: report.capabilities.ffmpeg.version,
+            },
+            ffprobe: {
+              path: report.capabilities.ffprobe.path,
+              version: report.capabilities.ffprobe.version,
+            },
+            melt: {
+              path: report.capabilities.mlt.path,
+              version: report.capabilities.mlt.version,
+            },
+          },
+        };
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
+    if (!report.ok) process.exitCode = 1;
+    return;
+  }
+  const [
+    { createBearerToken, startHttpServer },
+    { createMcpServer },
+    { WorkspaceService },
+  ] = await Promise.all([
+    import('./http.js'),
+    import('./server.js'),
+    import('./workspace.js'),
+  ]);
   const allowedRoot = resolve(argument('--root') ?? process.cwd());
   const stateRoot = resolve(
     argument('--state') ?? join(allowedRoot, '.kdenlive-mcp'),

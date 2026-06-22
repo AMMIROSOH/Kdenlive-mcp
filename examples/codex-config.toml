@@ -1,0 +1,7 @@
+# Add this block to the Codex config.toml used by your installation.
+# Replace both paths. Double backslashes are required on Windows TOML strings.
+[mcp_servers.kdenlive]
+command = "C:\\Users\\you\\AppData\\Local\\KdenliveMCP\\kdenlive-mcp-0.1.0-windows-x64\\kdenlive-mcp.cmd"
+args = ["--root", "C:\\Users\\you\\Videos", "--client-id", "codex"]
+startup_timeout_sec = 30
+tool_timeout_sec = 3600

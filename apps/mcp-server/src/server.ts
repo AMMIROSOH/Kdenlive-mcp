@@ -93,7 +93,7 @@ export interface ServerSessionOptions {
 export function createMcpServer(options: ServerSessionOptions): McpServer {
   const { clientId, workspace } = options;
   const server = new McpServer(
-    { name: 'kdenlive-mcp', version: '0.0.0' },
+    { name: 'kdenlive-mcp', version: '0.1.0' },
     { capabilities: { logging: {} } },
   );
 

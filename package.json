@@ -1,9 +1,22 @@
 {
   "name": "kdenlive-mcp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Headless, MLT-backed video editing foundation for MCP clients",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AMMIROSOH/Kdenlive-mcp.git"
+  },
+  "homepage": "https://github.com/AMMIROSOH/Kdenlive-mcp#readme",
+  "bugs": "https://github.com/AMMIROSOH/Kdenlive-mcp/issues",
+  "keywords": [
+    "mcp",
+    "kdenlive",
+    "mlt",
+    "video-editing",
+    "ffmpeg"
+  ],
   "engines": {
     "node": ">=22"
   },
@@ -26,6 +39,13 @@
     "render:acceptance": "pnpm build && pnpm --filter @kdenlive-mcp/render-core acceptance",
     "mcp:start": "pnpm build && pnpm --filter @kdenlive-mcp/server start",
     "mcp:acceptance": "pnpm build && pnpm --filter @kdenlive-mcp/server acceptance",
+    "doctor": "pnpm build && pnpm --filter @kdenlive-mcp/server start -- --doctor",
+    "docs:check": "node scripts/verify-docs.mjs",
+    "sbom": "node scripts/generate-sbom.mjs",
+    "licenses:report": "node scripts/generate-notices.mjs",
+    "package:release": "pnpm build && pnpm licenses:report && node scripts/package-release.mjs",
+    "release:verify": "node scripts/verify-release.mjs",
+    "release:acceptance": "node scripts/release-acceptance.mjs",
     "fixtures:milestone-1": "pnpm --filter @kdenlive-mcp/project-core fixtures",
     "worker:check": "python -m pytest apps/analysis-worker && python -m mypy apps/analysis-worker/src"
   },

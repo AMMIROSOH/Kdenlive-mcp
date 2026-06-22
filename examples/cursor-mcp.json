@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kdenlive": {
+      "command": "/home/you/.local/share/kdenlive-mcp/kdenlive-mcp-0.1.0-linux-x64/kdenlive-mcp",
+      "args": ["--root", "/home/you/Videos", "--client-id", "cursor"]
+    }
+  }
+}
