@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { runDoctor } from './doctor.js';
+import { APP_VERSION } from './version.js';
 
 function argument(name: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -13,11 +14,11 @@ function argument(name: string): string | undefined {
 
 async function main(): Promise<void> {
   if (process.argv.includes('--version')) {
-    process.stdout.write('kdenlive-mcp 0.1.0\n');
+    process.stdout.write(`kdenlive-mcp ${APP_VERSION}\n`);
     return;
   }
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    process.stdout.write(`Kdenlive MCP 0.1.0
+    process.stdout.write(`Kdenlive MCP ${APP_VERSION}
 
 Usage: kdenlive-mcp [options]
 

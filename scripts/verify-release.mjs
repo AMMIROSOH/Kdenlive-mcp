@@ -6,6 +6,9 @@ import { join, relative, resolve } from 'node:path';
 import process from 'node:process';
 
 const root = resolve(import.meta.dirname, '..');
+const packageJson = JSON.parse(
+  await readFile(join(root, 'package.json'), 'utf8'),
+);
 const pathIndex = process.argv.indexOf('--path');
 if (pathIndex < 0 || process.argv[pathIndex + 1] === undefined) {
   throw new Error('--path must identify an extracted release directory');
@@ -80,7 +83,7 @@ try {
   await cp(source, unicodeCopy, { recursive: true });
   const entry = join(unicodeCopy, 'app', 'dist', 'cli.js');
   const version = await runNode(entry, ['--version']);
-  if (!version.stdout.includes('kdenlive-mcp 0.1.0'))
+  if (!version.stdout.includes(`kdenlive-mcp ${packageJson.version}`))
     throw new Error('Release version check failed');
   const doctor = await runNode(entry, ['--doctor']);
   const report = JSON.parse(doctor.stdout);

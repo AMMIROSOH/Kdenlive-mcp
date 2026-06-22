@@ -34,6 +34,7 @@ import {
 
 import { AGENT_INSTRUCTIONS } from './instructions.js';
 import { WorkspaceService } from './workspace.js';
+import { APP_VERSION } from './version.js';
 
 const projectId = z.string().uuid();
 const expectedRevision = z.number().int().nonnegative();
@@ -93,7 +94,7 @@ export interface ServerSessionOptions {
 export function createMcpServer(options: ServerSessionOptions): McpServer {
   const { clientId, workspace } = options;
   const server = new McpServer(
-    { name: 'kdenlive-mcp', version: '0.1.0' },
+    { name: 'kdenlive-mcp', version: APP_VERSION },
     { capabilities: { logging: {} } },
   );
 

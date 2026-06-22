@@ -5,6 +5,9 @@ import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
 
 const root = resolve(import.meta.dirname, '..');
+const packageJson = JSON.parse(
+  await readFile(join(root, 'package.json'), 'utf8'),
+);
 const platformIndex = process.argv.indexOf('--platform');
 const platform =
   platformIndex < 0
@@ -41,7 +44,7 @@ await pnpm(['render:acceptance']);
 await pnpm(['mcp:acceptance']);
 await pnpm(['sbom']);
 await pnpm(['package:release', '--', '--platform', platform]);
-const stage = `artifacts/release/kdenlive-mcp-0.1.0-${platform}-x64`;
+const stage = `artifacts/release/kdenlive-mcp-${packageJson.version}-${platform}-x64`;
 await pnpm(['release:verify', '--', '--path', stage]);
 const archive = resolve(
   root,
@@ -50,7 +53,7 @@ const archive = resolve(
 const bytes = await readFile(archive);
 const report = {
   schemaVersion: 1,
-  version: '0.1.0',
+  version: packageJson.version,
   platform,
   generatedAt: new Date().toISOString(),
   deferredMilestones: [5, 6],
