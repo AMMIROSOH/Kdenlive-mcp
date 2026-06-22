@@ -25,6 +25,8 @@ outputs using the Kdenlive/MLT and FFmpeg installation already on your computer.
 
 Requirements: Node.js 22+, pnpm 9, and Kdenlive or separate MLT/FFmpeg tools.
 
+Powershell:
+
 ```powershell
 git clone https://github.com/AMMIROSOH/Kdenlive-mcp.git
 cd Kdenlive-mcp
