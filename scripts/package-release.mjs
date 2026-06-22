@@ -92,7 +92,7 @@ await run(process.execPath, [
   installRoot,
   'add',
   '--prod',
-  '--offline',
+  '--prefer-offline',
   '--ignore-scripts',
   '--force',
   '--config.node-linker=hoisted',
