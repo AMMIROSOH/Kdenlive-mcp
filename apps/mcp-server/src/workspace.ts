@@ -372,6 +372,10 @@ export class WorkspaceService {
               'vcodec=libx264',
               'acodec=aac',
               's=640x360',
+              `r=${String(
+                project.settings.fps.numerator /
+                  project.settings.fps.denominator,
+              )}`,
               'crf=28',
               'preset=veryfast',
             ];

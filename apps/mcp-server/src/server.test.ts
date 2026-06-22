@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
@@ -115,6 +116,40 @@ describe('Milestone 4 MCP protocol', () => {
         ? instructionContent.text
         : '',
     ).toContain('expectedRevision');
+  });
+
+  it('renders range previews at the project frame rate', async () => {
+    const { root, client } = await session();
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'project'), name: 'Preview FPS' },
+      }),
+    );
+    const preview = envelope(
+      await client.callTool({
+        name: 'preview_submit',
+        arguments: {
+          projectId: String(created.data?.id),
+          kind: 'range',
+          start: 0,
+          end: 30,
+        },
+      }),
+    );
+    expect(preview.ok).toBe(true);
+
+    const database = new DatabaseSync(
+      join(root, '.state', 'render-jobs', 'jobs.sqlite'),
+    );
+    const row = database
+      .prepare('SELECT request_json FROM render_jobs WHERE id=?')
+      .get(String(preview.data?.id)) as { readonly request_json: string };
+    database.close();
+    const request = JSON.parse(row.request_json) as {
+      readonly consumerArguments: readonly string[];
+    };
+    expect(request.consumerArguments).toContain('r=30');
   });
 
   it('blocks root escapes, unsafe artifact names, and cross-client job access', async () => {

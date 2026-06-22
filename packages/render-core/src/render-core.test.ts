@@ -13,7 +13,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { compileProject } from './compiler.js';
-import { RenderJobManager } from './jobs.js';
+import { renderProgress, RenderJobManager } from './jobs.js';
 import { PreviewPipeline } from './preview.js';
 import {
   BUILTIN_EXPORT_PROFILES,
@@ -275,6 +275,12 @@ describe('runtime process isolation', () => {
 });
 
 describe('render jobs', () => {
+  it('parses progress from current and legacy melt output', () => {
+    expect(renderProgress('Current Frame: 44, percentage: 49', 90)).toBe(0.5);
+    expect(renderProgress('Current Position: 89', 90)).toBe(0.99);
+    expect(renderProgress('renderer startup', 90)).toBeUndefined();
+  });
+
   it('persists progress and retries transient renderer failure', async () => {
     const root = resolve('tmp', `render-jobs-${crypto.randomUUID()}`);
     roots.push(root);

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -73,6 +73,21 @@ function rowToJob(row: JobRow): RenderJob {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+export function renderProgress(
+  output: string,
+  durationFrames: number,
+): number | undefined {
+  let latestFrame: number | undefined;
+  for (const match of output.matchAll(
+    /Current (?:Frame|Position):\s*(\d+)/gu,
+  )) {
+    latestFrame = Number(match[1]);
+  }
+  return latestFrame === undefined
+    ? undefined
+    : Math.min(0.99, (latestFrame + 1) / durationFrames);
 }
 
 export class RenderJobManager {
@@ -228,16 +243,18 @@ export class RenderJobManager {
     const controller = new AbortController();
     this.#controllers.set(id, controller);
     let log = '';
+    let logWrite = Promise.resolve();
     let progressBuffer = '';
     const onOutput = (text: string): void => {
       log = `${log}${text}`.slice(-4 * 1024 * 1024);
+      logWrite = logWrite.then(
+        async () => await appendFile(row.log_path, text, 'utf8'),
+      );
       progressBuffer = `${progressBuffer}${text}`.slice(-4096);
-      for (const match of progressBuffer.matchAll(
-        /Current Position:\s*(\d+)/gu,
-      )) {
-        const frame = Number(match[1]);
+      const progress = renderProgress(progressBuffer, request.durationFrames);
+      if (progress !== undefined) {
         this.#update(id, {
-          progress: Math.min(0.99, (frame + 1) / request.durationFrames),
+          progress,
         });
       }
     };
@@ -256,11 +273,11 @@ export class RenderJobManager {
         {
           signal: controller.signal,
           onOutput,
-          timeoutMs: 3_600_000,
+          timeoutMs: request.kind === 'preview' ? 600_000 : 3_600_000,
           maxOutputBytes: 16 * 1024 * 1024,
         },
       );
-      await writeFile(row.log_path, log, 'utf8');
+      await logWrite;
       if (this.get(id).status === 'cancelled') return;
       if (result.exitCode !== 0)
         throw new Error(`melt exited with ${String(result.exitCode)}`);
@@ -269,9 +286,12 @@ export class RenderJobManager {
         throw new Error('Renderer produced no output file');
       this.#update(id, { status: 'succeeded', progress: 1, error: null });
     } catch (error) {
-      await writeFile(
+      await logWrite.catch(() => undefined);
+      await appendFile(
         row.log_path,
-        `${log}\n${error instanceof Error ? error.message : String(error)}\n`,
+        `${log.length === 0 ? '' : '\n'}${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
         'utf8',
       );
       if (this.get(id).status !== 'cancelled') {
