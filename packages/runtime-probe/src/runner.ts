@@ -13,6 +13,29 @@ export interface CommandRunner {
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 30_000;
 
+const PROBE_ENVIRONMENT = new Set([
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LD_LIBRARY_PATH',
+  'PATH',
+  'PATHEXT',
+  'Path',
+  'SystemRoot',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'WINDIR',
+]);
+
+function probeEnvironment(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name, value]) => PROBE_ENVIRONMENT.has(name) && value !== undefined,
+    ),
+  );
+}
+
 export class SpawnCommandRunner implements CommandRunner {
   async run(
     executable: string,
@@ -23,6 +46,7 @@ export class SpawnCommandRunner implements CommandRunner {
         shell: false,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: probeEnvironment(),
       });
       let stdout = '';
       let stderr = '';

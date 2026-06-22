@@ -27,6 +27,7 @@ import type {
   CommandExecutor,
   CommandOptions,
 } from './runtime.js';
+import { SpawnCommandExecutor } from './runtime.js';
 import { verifyOutput } from './verify.js';
 
 const roots: string[] = [];
@@ -255,6 +256,21 @@ describe('export profiles', () => {
     expect(() =>
       validateProfileCapabilities(profile, ['ffv1', 'pcm_s16le']),
     ).not.toThrow();
+  });
+});
+
+describe('runtime process isolation', () => {
+  it('does not forward arbitrary parent secrets', async () => {
+    process.env.KDENLIVE_MCP_TEST_SECRET = 'must-not-leak';
+    try {
+      const result = await new SpawnCommandExecutor().run(process.execPath, [
+        '-e',
+        "process.stdout.write(process.env.KDENLIVE_MCP_TEST_SECRET ?? 'missing')",
+      ]);
+      expect(result).toMatchObject({ exitCode: 0, stdout: 'missing' });
+    } finally {
+      delete process.env.KDENLIVE_MCP_TEST_SECRET;
+    }
   });
 });
 

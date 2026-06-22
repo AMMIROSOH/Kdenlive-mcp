@@ -6,7 +6,7 @@ Issue IDs remain stable; suffixes identify the smaller work chunks.
 
 Status lives in the milestone documents and issue tracker, not in this overview.
 Detailed status is recorded in the matching `milestone-N.md` document; Milestones
-0 through 3 are implemented.
+0 through 4 are implemented.
 
 ## Working order
 
@@ -241,6 +241,9 @@ Milestone 3 exit: queued preview/export jobs survive restart and produce verifie
 reproducible outputs or actionable structured failures on both platforms.
 
 ## Milestone 4 — MCP server and safety
+
+Implementation and acceptance evidence are tracked in
+[`milestone-4.md`](milestone-4.md).
 
 ### 4.1 MCP transports
 

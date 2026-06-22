@@ -43,6 +43,29 @@ const MEDIA_EXTENSIONS = new Set([
   '.webp',
 ]);
 
+const MEDIA_ENVIRONMENT = new Set([
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LD_LIBRARY_PATH',
+  'PATH',
+  'PATHEXT',
+  'Path',
+  'SystemRoot',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'WINDIR',
+]);
+
+function mediaEnvironment(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name, value]) => MEDIA_ENVIRONMENT.has(name) && value !== undefined,
+    ),
+  );
+}
+
 export interface ProbeCache {
   getCachedProbe(sha256: string, probeVersion: string): string | null;
   setCachedProbe(sha256: string, probeVersion: string, probeJson: string): void;
@@ -234,7 +257,12 @@ export class FfprobeRunner implements MediaProbeRunner {
           'json',
           path,
         ],
-        { shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
+        {
+          shell: false,
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: mediaEnvironment(),
+        },
       );
       let stdout = '';
       let stderr = '';

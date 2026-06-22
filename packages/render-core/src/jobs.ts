@@ -18,10 +18,11 @@ export const renderJobRequestSchema = z.object({
   durationFrames: z.int().positive(),
   outputPath: z.string().min(1),
   consumerArguments: z.array(z.string()).min(1),
+  meltArguments: z.array(z.string()).max(32).default([]),
   maxAttempts: z.int().min(1).max(5).default(1),
 });
 
-export type RenderJobRequest = z.infer<typeof renderJobRequestSchema>;
+export type RenderJobRequest = z.input<typeof renderJobRequestSchema>;
 export type RenderJobStatus =
   | 'queued'
   | 'running'
@@ -245,6 +246,7 @@ export class RenderJobManager {
         this.#meltPath,
         [
           xmlPath,
+          ...request.meltArguments,
           '-consumer',
           ...request.consumerArguments,
           'real_time=-1',

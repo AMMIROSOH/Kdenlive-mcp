@@ -1,0 +1,22 @@
+{
+  "name": "@kdenlive-mcp/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "kdenlive-mcp": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "acceptance": "node dist/acceptance-cli.js",
+    "start": "node dist/cli.js",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@kdenlive-mcp/project-core": "workspace:*",
+    "@kdenlive-mcp/render-core": "workspace:*",
+    "@kdenlive-mcp/runtime-probe": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "^4.3.6"
+  }
+}

@@ -14,6 +14,8 @@ Timeline query and editing-engine status is tracked in
 [`docs/milestone-2.md`](docs/milestone-2.md).
 Rendering, durable jobs, previews, profiles, and output verification are tracked
 in [`docs/milestone-3.md`](docs/milestone-3.md).
+MCP transports, tools, resources, and security status are tracked in
+[`docs/milestone-4.md`](docs/milestone-4.md).
 
 ## Prerequisites
 
@@ -30,6 +32,7 @@ pnpm test:runtime
 pnpm spike:prepare
 pnpm spike:render
 pnpm render:acceptance
+pnpm mcp:acceptance
 ```
 
 On Windows, the standard `C:\Program Files\Kdenlive` installation is discovered
@@ -38,6 +41,6 @@ automatically. A portable installation can be selected with `KDENLIVE_ROOT` or
 
 ## Scope
 
-Milestones 0-3 are implemented: the canonical project/editing model and rendering
-stack are available as workspace packages. The public MCP transport and tool
-surface begins in Milestone 4.
+Milestones 0-4 are implemented: the canonical editing/rendering stack is exposed
+through stdio and authenticated loopback Streamable HTTP. Local media intelligence
+begins in Milestone 5.

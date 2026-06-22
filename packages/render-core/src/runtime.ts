@@ -48,6 +48,37 @@ export interface CommandExecutor {
   ): Promise<CommandExecution>;
 }
 
+const ALLOWED_ENVIRONMENT = new Set([
+  'APPDATA',
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'LD_LIBRARY_PATH',
+  'LOCALAPPDATA',
+  'MLT_DATA',
+  'MLT_PRESETS_PATH',
+  'MLT_PROFILES_PATH',
+  'MLT_REPOSITORY',
+  'PATH',
+  'PATHEXT',
+  'Path',
+  'QML2_IMPORT_PATH',
+  'QT_PLUGIN_PATH',
+  'SystemRoot',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'WINDIR',
+]);
+
+function runtimeEnvironment(): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name, value]) => ALLOWED_ENVIRONMENT.has(name) && value !== undefined,
+    ),
+  );
+}
+
 export class SpawnCommandExecutor implements CommandExecutor {
   async run(
     executable: string,
@@ -59,6 +90,7 @@ export class SpawnCommandExecutor implements CommandExecutor {
         shell: false,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        env: runtimeEnvironment(),
       });
       let stdout = '';
       let stderr = '';
