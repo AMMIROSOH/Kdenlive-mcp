@@ -111,6 +111,10 @@ await cp(
     recursive: true,
   },
 );
+await rm(join(stage, 'app', 'node_modules', '.bin'), {
+  recursive: true,
+  force: true,
+});
 await rm(installRoot, { recursive: true, force: true });
 await cp(join(root, 'apps', 'mcp-server', 'dist'), join(stage, 'app', 'dist'), {
   recursive: true,

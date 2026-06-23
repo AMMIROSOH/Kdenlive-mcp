@@ -5,8 +5,9 @@ Start with `kdenlive-mcp --doctor`.
 ## Executable not discovered
 
 Install Kdenlive normally, add standalone executables to `PATH`, set
-`KDENLIVE_ROOT`, or set exact `MELT_PATH`, `FFMPEG_PATH`, and `FFPROBE_PATH`
-variables. On Windows, `KDENLIVE_ROOT=C:\Program Files\Kdenlive` is typical.
+`KDENLIVE_ROOT`, or set `MELT_PATH`, `FFMPEG_PATH`, and `FFPROBE_PATH` to an
+exact executable or a containing directory. On Windows,
+`KDENLIVE_ROOT=C:\Program Files\Kdenlive` is typical.
 
 ## MLT service missing
 

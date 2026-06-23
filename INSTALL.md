@@ -63,7 +63,7 @@ and codec. Fix all failures before configuring a client.
 
 No Kdenlive path is normally required. Discovery checks, in order:
 
-1. `MELT_PATH`, `FFMPEG_PATH`, and `FFPROBE_PATH`.
+1. `MELT_PATH`, `FFMPEG_PATH`, and `FFPROBE_PATH` as an executable file or a containing directory.
 2. `KDENLIVE_ROOT` and `MLT_ROOT`.
 3. Standard Windows system and per-user Kdenlive directories.
 4. Linux `/usr`, `/usr/local`, `/opt/kdenlive`, and AppImage `APPDIR`.

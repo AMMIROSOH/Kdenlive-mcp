@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { compileSpikeProject, defaultSpikeProject } from './compiler.js';
@@ -12,9 +12,27 @@ const ARTIFACTS = join(ROOT, 'artifacts', 'spike');
 const XML_PATH = join(ARTIFACTS, 'project.mlt');
 const VIDEO_PATH = join(ARTIFACTS, 'milestone-0.mkv');
 
+function executableFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function executable(environmentName: string, fallback: string): string {
   const configured = process.env[environmentName];
-  if (configured !== undefined) return configured;
+  const fileName = process.platform === 'win32' ? `${fallback}.exe` : fallback;
+  if (configured !== undefined) {
+    if (executableFile(configured)) return configured;
+    for (const candidate of [
+      join(configured, fileName),
+      join(configured, 'bin', fileName),
+    ]) {
+      if (executableFile(candidate)) return candidate;
+    }
+    return configured;
+  }
   const roots = [
     process.env.KDENLIVE_ROOT,
     process.env.MLT_ROOT,
@@ -22,7 +40,6 @@ function executable(environmentName: string, fallback: string): string {
       ? join(process.env.ProgramFiles, 'Kdenlive')
       : undefined,
   ].filter((root): root is string => root !== undefined && root !== '');
-  const fileName = process.platform === 'win32' ? `${fallback}.exe` : fallback;
   for (const root of roots) {
     for (const candidate of [
       join(root, 'bin', fileName),

@@ -1,9 +1,11 @@
 import { constants } from 'node:fs';
-import { access } from 'node:fs/promises';
+import { access, stat } from 'node:fs/promises';
 import { delimiter, extname, join, resolve } from 'node:path';
 
 async function isExecutable(path: string): Promise<boolean> {
   try {
+    const details = await stat(path);
+    if (!details.isFile()) return false;
     await access(
       path,
       process.platform === 'win32' ? constants.F_OK : constants.X_OK,
@@ -25,6 +27,22 @@ function candidateNames(
     .map((extension) => `${name}${extension.toLowerCase()}`);
 }
 
+async function resolveConfiguredDirectory(
+  directory: string,
+  candidates: readonly string[],
+): Promise<string | null> {
+  for (const candidate of candidates) {
+    for (const path of [
+      join(directory, candidate),
+      join(directory, 'bin', candidate),
+    ]) {
+      const resolved = resolve(path);
+      if (await isExecutable(resolved)) return resolved;
+    }
+  }
+  return null;
+}
+
 export async function resolveExecutable(
   name: string,
   configuredPath: string | undefined,
@@ -33,12 +51,16 @@ export async function resolveExecutable(
     readonly platform?: NodeJS.Platform;
   } = {},
 ): Promise<string | null> {
+  const platform = options.platform ?? process.platform;
   if (configuredPath !== undefined && configuredPath.trim() !== '') {
     const configured = resolve(configuredPath);
-    return (await isExecutable(configured)) ? configured : null;
+    if (await isExecutable(configured)) return configured;
+    return await resolveConfiguredDirectory(
+      configured,
+      candidateNames(name, platform),
+    );
   }
 
-  const platform = options.platform ?? process.platform;
   const directories = (options.path ?? process.env.PATH ?? '')
     .split(delimiter)
     .filter(Boolean);

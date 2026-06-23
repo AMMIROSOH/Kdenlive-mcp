@@ -1,13 +1,31 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 
 export type RuntimeExecutable = 'ffmpeg' | 'ffprobe' | 'melt';
 
+function executableFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
 export function resolveRuntimeExecutable(name: RuntimeExecutable): string {
   const environmentName = `${name.toUpperCase()}_PATH`;
   const configured = process.env[environmentName];
-  if (configured !== undefined) return configured;
+  const fileName = process.platform === 'win32' ? `${name}.exe` : name;
+  if (configured !== undefined) {
+    if (executableFile(configured)) return configured;
+    for (const candidate of [
+      join(configured, fileName),
+      join(configured, 'bin', fileName),
+    ]) {
+      if (executableFile(candidate)) return candidate;
+    }
+    return configured;
+  }
   const roots = [
     process.env.KDENLIVE_ROOT,
     process.env.MLT_ROOT,
@@ -26,7 +44,6 @@ export function resolveRuntimeExecutable(name: RuntimeExecutable): string {
     process.platform !== 'win32' ? '/usr/local' : undefined,
     process.platform !== 'win32' ? '/opt/kdenlive' : undefined,
   ].filter((root): root is string => root !== undefined && root !== '');
-  const fileName = process.platform === 'win32' ? `${name}.exe` : name;
   for (const root of roots) {
     for (const candidate of [
       join(root, 'bin', fileName),
