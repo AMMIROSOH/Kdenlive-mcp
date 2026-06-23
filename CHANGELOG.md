@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/AMMIROSOH/Kdenlive-mcp/compare/kdenlive-mcp-v1.0.0...kdenlive-mcp-v1.0.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* actions fix, prepare 1.0.0 [release] ([cfa77ee](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/cfa77ee545bf752a0ea50bddfbde4bc30abcd4d9))
+* check fixes ([b165103](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/b16510390ad36cadec37f22a9974a65a45774add))
+
 ## [1.0.0](https://github.com/AMMIROSOH/Kdenlive-mcp/compare/kdenlive-mcp-v0.1.0...kdenlive-mcp-v1.0.0) (2026-06-22)
 
 
