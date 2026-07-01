@@ -152,6 +152,44 @@ describe('Milestone 4 MCP protocol', () => {
     expect(request.consumerArguments).toContain('r=30');
   });
 
+  it('renders frame previews by advancing to the requested frame', async () => {
+    const { root, client } = await session();
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'frame-preview'), name: 'Frame Preview' },
+      }),
+    );
+    const preview = envelope(
+      await client.callTool({
+        name: 'preview_submit',
+        arguments: {
+          projectId: String(created.data?.id),
+          kind: 'frame',
+          start: 10,
+        },
+      }),
+    );
+    expect(preview.ok).toBe(true);
+
+    const database = new DatabaseSync(
+      join(root, '.state', 'render-jobs', 'jobs.sqlite'),
+    );
+    const row = database
+      .prepare('SELECT request_json FROM render_jobs WHERE id=?')
+      .get(String(preview.data?.id)) as { readonly request_json: string };
+    database.close();
+    const request = JSON.parse(row.request_json) as {
+      readonly consumerArguments: readonly string[];
+      readonly durationFrames: number;
+      readonly meltArguments: readonly string[];
+    };
+    expect(request.consumerArguments).toContain('update=1');
+    expect(request.consumerArguments).toContain('vframes=11');
+    expect(request.durationFrames).toBe(11);
+    expect(request.meltArguments).toEqual(['out=10']);
+  });
+
   it('blocks root escapes, unsafe artifact names, and cross-client job access', async () => {
     const { root, workspace, client } = await session('owner-a');
     const outside = envelope(

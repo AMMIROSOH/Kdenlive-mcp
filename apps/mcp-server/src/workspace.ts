@@ -363,7 +363,13 @@ export class WorkspaceService {
     const outputPath = this.#artifactPath(handle, `preview-${id}`, extension);
     const consumerArguments =
       input.kind === 'frame'
-        ? [`avformat:${outputPath}`, 'f=image2', 'vcodec=png', 'vframes=1']
+        ? [
+            `avformat:${outputPath}`,
+            'f=image2',
+            'vcodec=png',
+            `vframes=${String(input.start + 1)}`,
+            'update=1',
+          ]
         : input.kind === 'audio'
           ? [`avformat:${outputPath}`, 'f=wav', 'acodec=pcm_s16le', 'vn=1']
           : [
@@ -382,10 +388,16 @@ export class WorkspaceService {
     const job = this.#jobs.submit({
       kind: 'preview',
       xml: compiled.xml,
-      durationFrames: end - input.start,
+      durationFrames:
+        input.kind === 'frame' ? input.start + 1 : end - input.start,
       outputPath,
       consumerArguments,
-      meltArguments: [`in=${String(input.start)}`, `out=${String(end - 1)}`],
+      // MLT can render blank frames when seeking directly into a still-image
+      // producer. For frame previews, render forward and keep the final image.
+      meltArguments:
+        input.kind === 'frame'
+          ? [`out=${String(input.start)}`]
+          : [`in=${String(input.start)}`, `out=${String(end - 1)}`],
       maxAttempts: 1,
     });
     this.#owners.set(job.id, input.clientId, {
