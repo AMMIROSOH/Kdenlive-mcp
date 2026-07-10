@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
 import {
+  DEFAULT_PROJECT_SETTINGS,
   addCaptions,
   addClips,
   addMarkers,
@@ -30,6 +31,7 @@ import {
   updateTexts,
   updateTransition,
   type EditResult,
+  type ProjectSettings,
 } from '@kdenlive-mcp/project-core';
 
 import { AGENT_INSTRUCTIONS } from './instructions.js';
@@ -40,6 +42,68 @@ const projectId = z.string().uuid();
 const expectedRevision = z.number().int().nonnegative();
 const entityId = z.string().uuid();
 const unknownRecord = z.record(z.string(), z.unknown());
+const projectSettingsOverridesSchema = z
+  .object({
+    fps: z
+      .object({
+        numerator: z.int().positive(),
+        denominator: z.int().positive(),
+      })
+      .optional(),
+    width: z.int().positive().optional(),
+    height: z.int().positive().optional(),
+    audioSampleRate: z.int().positive().optional(),
+    color: z
+      .object({
+        primaries: z.enum(['bt601', 'bt709', 'bt2020']).optional(),
+        transfer: z.enum(['bt601', 'bt709', 'srgb', 'pq', 'hlg']).optional(),
+        matrix: z.enum(['bt601', 'bt709', 'bt2020-ncl']).optional(),
+        range: z.enum(['limited', 'full']).optional(),
+      })
+      .optional(),
+    exportDefaults: z
+      .object({
+        profile: z.string().min(1).optional(),
+        videoCodec: z.string().min(1).optional(),
+        audioCodec: z.string().min(1).optional(),
+      })
+      .optional(),
+  })
+  .strict();
+
+type ProjectSettingsOverrides = z.infer<typeof projectSettingsOverridesSchema>;
+
+function resolveProjectSettings(
+  overrides: ProjectSettingsOverrides | undefined,
+): ProjectSettings {
+  if (overrides === undefined) return structuredClone(DEFAULT_PROJECT_SETTINGS);
+  return {
+    fps: overrides.fps ?? DEFAULT_PROJECT_SETTINGS.fps,
+    width: overrides.width ?? DEFAULT_PROJECT_SETTINGS.width,
+    height: overrides.height ?? DEFAULT_PROJECT_SETTINGS.height,
+    audioSampleRate:
+      overrides.audioSampleRate ?? DEFAULT_PROJECT_SETTINGS.audioSampleRate,
+    color: {
+      primaries:
+        overrides.color?.primaries ?? DEFAULT_PROJECT_SETTINGS.color.primaries,
+      transfer:
+        overrides.color?.transfer ?? DEFAULT_PROJECT_SETTINGS.color.transfer,
+      matrix: overrides.color?.matrix ?? DEFAULT_PROJECT_SETTINGS.color.matrix,
+      range: overrides.color?.range ?? DEFAULT_PROJECT_SETTINGS.color.range,
+    },
+    exportDefaults: {
+      profile:
+        overrides.exportDefaults?.profile ??
+        DEFAULT_PROJECT_SETTINGS.exportDefaults.profile,
+      videoCodec:
+        overrides.exportDefaults?.videoCodec ??
+        DEFAULT_PROJECT_SETTINGS.exportDefaults.videoCodec,
+      audioCodec:
+        overrides.exportDefaults?.audioCodec ??
+        DEFAULT_PROJECT_SETTINGS.exportDefaults.audioCodec,
+    },
+  };
+}
 
 type ToolEnvelope = {
   readonly ok: boolean;
@@ -106,7 +170,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       inputSchema: {
         path: z.string().min(1).max(1_024),
         name: z.string().min(1).max(200),
-        settings: unknownRecord.optional(),
+        settings: projectSettingsOverridesSchema.optional(),
       },
       annotations: { destructiveHint: false, openWorldHint: false },
     },
@@ -116,13 +180,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
           await workspace.createProject({
             path,
             name,
-            ...(settings === undefined
-              ? {}
-              : {
-                  settings: settings as unknown as NonNullable<
-                    Parameters<typeof workspace.createProject>[0]['settings']
-                  >,
-                }),
+            settings: resolveProjectSettings(settings),
           }),
       ),
   );

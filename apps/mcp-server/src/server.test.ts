@@ -118,6 +118,34 @@ describe('Milestone 4 MCP protocol', () => {
     ).toContain('expectedRevision');
   });
 
+  it('merges partial project settings with the documented defaults', async () => {
+    const { root, client } = await session();
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: {
+          path: join(root, 'partial-settings'),
+          name: 'Partial settings',
+          settings: {
+            fps: { numerator: 60, denominator: 1 },
+            width: 1080,
+            height: 1920,
+          },
+        },
+      }),
+    );
+
+    expect(created.ok).toBe(true);
+    expect(created.data?.settings).toMatchObject({
+      fps: { numerator: 60, denominator: 1 },
+      width: 1080,
+      height: 1920,
+      audioSampleRate: 48_000,
+      color: { primaries: 'bt709', transfer: 'bt709' },
+      exportDefaults: { profile: 'youtube-1080p' },
+    });
+  });
+
   it('renders range previews at the project frame rate', async () => {
     const { root, client } = await session();
     const created = envelope(
