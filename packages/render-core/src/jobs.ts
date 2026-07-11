@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { appendFile, mkdir, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import {
+  appendFile,
+  mkdir,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import { z } from 'zod';
 
 import {
+  MeltExecutionCoordinator,
+  MeltExecutionError,
   resolveRuntimeExecutable,
   SpawnCommandExecutor,
   type CommandExecutor,
@@ -40,6 +49,11 @@ export interface RenderJob {
   readonly outputPath: string;
   readonly logPath: string;
   readonly error: string | null;
+  readonly failureCategory: string | null;
+  readonly executable: string | null;
+  readonly nativeExitCode: number | null;
+  readonly diagnosticUri: string | null;
+  readonly meltInvoked: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -54,12 +68,21 @@ interface JobRow {
   readonly output_path: string;
   readonly log_path: string;
   readonly error: string | null;
+  readonly diagnostic_json: string | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly request_json: string;
 }
 
 function rowToJob(row: JobRow): RenderJob {
+  const diagnostic =
+    row.diagnostic_json === null
+      ? null
+      : (JSON.parse(row.diagnostic_json) as {
+          readonly category: string;
+          readonly executable: string;
+          readonly nativeExitCode: number;
+        });
   return {
     id: row.id,
     status: row.status,
@@ -70,6 +93,12 @@ function rowToJob(row: JobRow): RenderJob {
     outputPath: row.output_path,
     logPath: row.log_path,
     error: row.error,
+    failureCategory: diagnostic?.category ?? null,
+    executable: diagnostic?.executable ?? null,
+    nativeExitCode: diagnostic?.nativeExitCode ?? null,
+    diagnosticUri:
+      diagnostic === null ? null : `kdenlive://diagnostics/${row.id}`,
+    meltInvoked: diagnostic !== null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -97,6 +126,7 @@ export class RenderJobManager {
   readonly #meltPath: string;
   readonly #controllers = new Map<string, AbortController>();
   readonly #concurrency: number;
+  readonly #meltCoordinator: MeltExecutionCoordinator;
 
   constructor(
     root: string,
@@ -104,6 +134,7 @@ export class RenderJobManager {
       readonly executor?: CommandExecutor;
       readonly meltPath?: string;
       readonly concurrency?: number;
+      readonly meltCoordinator?: MeltExecutionCoordinator;
     } = {},
   ) {
     this.root = resolve(root);
@@ -111,6 +142,8 @@ export class RenderJobManager {
     this.#executor = options.executor ?? new SpawnCommandExecutor();
     this.#meltPath = options.meltPath ?? resolveRuntimeExecutable('melt');
     this.#concurrency = options.concurrency ?? 1;
+    this.#meltCoordinator =
+      options.meltCoordinator ?? new MeltExecutionCoordinator();
     this.#database = new DatabaseSync(join(this.root, 'jobs.sqlite'));
     this.#database.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
     this.#database.exec(`
@@ -124,11 +157,19 @@ export class RenderJobManager {
         output_path TEXT NOT NULL,
         log_path TEXT NOT NULL,
         error TEXT,
+        diagnostic_json TEXT,
         request_json TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
     `);
+    const columns = this.#database
+      .prepare('PRAGMA table_info(render_jobs)')
+      .all() as unknown as { readonly name: string }[];
+    if (!columns.some((column) => column.name === 'diagnostic_json'))
+      this.#database.exec(
+        'ALTER TABLE render_jobs ADD COLUMN diagnostic_json TEXT',
+      );
     this.#database.exec(
       "UPDATE render_jobs SET status='queued', error='Recovered after process restart' WHERE status='running'",
     );
@@ -138,6 +179,7 @@ export class RenderJobManager {
     await mkdir(this.root, { recursive: true });
     await mkdir(join(this.root, 'logs'), { recursive: true });
     await mkdir(join(this.root, 'tmp'), { recursive: true });
+    await mkdir(join(this.root, 'failures'), { recursive: true });
     await this.cleanupTemporaryFiles();
   }
 
@@ -188,6 +230,15 @@ export class RenderJobManager {
           )
           .all(status)) as unknown as JobRow[];
     return rows.map(rowToJob);
+  }
+
+  diagnostic(id: string): unknown {
+    const row = this.#database
+      .prepare('SELECT diagnostic_json FROM render_jobs WHERE id=?')
+      .get(id) as { readonly diagnostic_json: string | null } | undefined;
+    if (row?.diagnostic_json == null)
+      throw new Error(`Job diagnostic not found: ${id}`);
+    return JSON.parse(row.diagnostic_json) as unknown;
   }
 
   cancel(id: string): RenderJob {
@@ -258,18 +309,21 @@ export class RenderJobManager {
         });
       }
     };
+    const arguments_ = [
+      xmlPath,
+      ...request.meltArguments,
+      '-consumer',
+      ...request.consumerArguments,
+      'real_time=-1',
+      'terminate_on_pause=1',
+      'progress=1',
+    ];
     try {
-      const result = await this.#executor.run(
+      const startedAt = Date.now();
+      const result = await this.#meltCoordinator.run(
+        this.#executor,
         this.#meltPath,
-        [
-          xmlPath,
-          ...request.meltArguments,
-          '-consumer',
-          ...request.consumerArguments,
-          'real_time=-1',
-          'terminate_on_pause=1',
-          'progress=1',
-        ],
+        arguments_,
         {
           signal: controller.signal,
           onOutput,
@@ -280,11 +334,18 @@ export class RenderJobManager {
       await logWrite;
       if (this.get(id).status === 'cancelled') return;
       if (result.exitCode !== 0)
-        throw new Error(`melt exited with ${String(result.exitCode)}`);
+        throw new MeltExecutionError(
+          this.#meltPath,
+          result,
+          Date.now() - startedAt,
+        );
       const output = await stat(resolve(request.outputPath));
       if (!output.isFile() || output.size === 0)
         throw new Error('Renderer produced no output file');
       this.#update(id, { status: 'succeeded', progress: 1, error: null });
+      this.#database
+        .prepare('UPDATE render_jobs SET diagnostic_json=NULL WHERE id=?')
+        .run(id);
     } catch (error) {
       await logWrite.catch(() => undefined);
       await appendFile(
@@ -296,15 +357,72 @@ export class RenderJobManager {
       );
       if (this.get(id).status !== 'cancelled') {
         const message = error instanceof Error ? error.message : String(error);
+        let diagnostic: Record<string, unknown> | null = null;
+        if (error instanceof MeltExecutionError) {
+          diagnostic = {
+            category: error.category,
+            executable: error.executable,
+            nativeExitCode: error.nativeExitCode,
+            nativeExitCodeHex: error.nativeExitCodeHex,
+            elapsedMs: error.elapsedMs,
+            stderrTail: error.stderrTail,
+            sanitizedEnvironmentVariables: error.sanitizedEnvironmentVariables,
+            meltInvoked: true,
+            logPath: row.log_path,
+            commandArguments: arguments_.map((argument) => {
+              if (argument.startsWith('avformat:'))
+                return `avformat:<path:${basename(argument.slice('avformat:'.length))}>`;
+              return isAbsolute(argument)
+                ? `<path:${basename(argument)}>`
+                : argument;
+            }),
+          };
+          await writeFile(
+            join(this.root, 'failures', `${id}.mlt`),
+            request.xml,
+            'utf8',
+          );
+          await writeFile(
+            join(this.root, 'failures', `${id}.json`),
+            JSON.stringify(diagnostic, null, 2),
+            'utf8',
+          );
+          await this.#pruneFailureArtifacts();
+        }
         this.#update(id, {
           status: attempt < request.maxAttempts ? 'queued' : 'failed',
           progress: 0,
           error: message,
         });
+        this.#database
+          .prepare('UPDATE render_jobs SET diagnostic_json=? WHERE id=?')
+          .run(diagnostic === null ? null : JSON.stringify(diagnostic), id);
       }
     } finally {
       this.#controllers.delete(id);
       await rm(workspace, { recursive: true, force: true });
+    }
+  }
+
+  async #pruneFailureArtifacts(): Promise<void> {
+    const directory = join(this.root, 'failures');
+    const entries = await readdir(directory, { withFileTypes: true });
+    const diagnostics = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+        .map(async (entry) => ({
+          name: entry.name,
+          modified: (await stat(join(directory, entry.name))).mtimeMs,
+        })),
+    );
+    for (const entry of diagnostics
+      .sort((left, right) => right.modified - left.modified)
+      .slice(20)) {
+      const id = entry.name.slice(0, -'.json'.length);
+      await Promise.all([
+        rm(join(directory, `${id}.json`), { force: true }),
+        rm(join(directory, `${id}.mlt`), { force: true }),
+      ]);
     }
   }
 

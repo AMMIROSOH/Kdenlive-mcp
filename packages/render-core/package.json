@@ -7,7 +7,7 @@
   "scripts": {
     "acceptance": "tsx src/acceptance-cli.ts",
     "build": "tsc -b",
-    "test": "vitest run src"
+    "test": "vitest run --root ../.. --config vitest.config.ts packages/render-core/src"
   },
   "dependencies": {
     "@kdenlive-mcp/project-core": "workspace:*",

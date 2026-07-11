@@ -29,9 +29,14 @@ export {
 } from './verify.js';
 export {
   resolveRuntimeExecutable,
+  runtimeEnvironment,
+  MeltExecutionCoordinator,
+  MeltExecutionError,
+  SANITIZED_MELT_ENVIRONMENT_VARIABLES,
   SpawnCommandExecutor,
   type CommandExecution,
   type CommandExecutor,
   type CommandOptions,
   type RuntimeExecutable,
+  type MeltFailureCategory,
 } from './runtime.js';

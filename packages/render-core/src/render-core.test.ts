@@ -27,7 +27,12 @@ import type {
   CommandExecutor,
   CommandOptions,
 } from './runtime.js';
-import { SpawnCommandExecutor } from './runtime.js';
+import {
+  MeltExecutionCoordinator,
+  MeltExecutionError,
+  SpawnCommandExecutor,
+  runtimeEnvironment,
+} from './runtime.js';
 import { verifyOutput } from './verify.js';
 
 const roots: string[] = [];
@@ -166,7 +171,11 @@ function fixtureProject(): Project {
 
 class FixtureExecutor implements CommandExecutor {
   calls = 0;
+  readonly argumentLists: string[][] = [];
   failFirst = false;
+  failOnConcurrent = false;
+  activeCalls = 0;
+  maxConcurrentCalls = 0;
 
   async run(
     _executable: string,
@@ -174,19 +183,38 @@ class FixtureExecutor implements CommandExecutor {
     options: CommandOptions = {},
   ): Promise<CommandExecution> {
     this.calls += 1;
-    options.onOutput?.(
-      'Current Position: 44\nCurrent Position: 89\n',
-      'stderr',
+    this.argumentLists.push([...args]);
+    this.activeCalls += 1;
+    this.maxConcurrentCalls = Math.max(
+      this.maxConcurrentCalls,
+      this.activeCalls,
     );
-    if (this.failFirst && this.calls === 1)
-      return { exitCode: 1, stdout: '', stderr: 'fixture failure' };
-    const consumer = args.find((argument) => argument.startsWith('avformat:'));
-    const output = consumer?.slice('avformat:'.length) ?? args.at(-1);
-    if (output !== undefined && !output.startsWith('-')) {
-      await mkdir(resolve(output, '..'), { recursive: true });
-      await writeFile(output, 'fixture output');
+    try {
+      await Promise.resolve();
+      options.onOutput?.(
+        'Current Position: 44\nCurrent Position: 89\n',
+        'stderr',
+      );
+      if (this.failOnConcurrent && this.activeCalls > 1)
+        return {
+          exitCode: 1,
+          stdout: '',
+          stderr: 'concurrent fixture failure',
+        };
+      if (this.failFirst && this.calls === 1)
+        return { exitCode: 1, stdout: '', stderr: 'fixture failure' };
+      const consumer = args.find((argument) =>
+        argument.startsWith('avformat:'),
+      );
+      const output = consumer?.slice('avformat:'.length) ?? args.at(-1);
+      if (output !== undefined && !output.startsWith('-')) {
+        await mkdir(resolve(output, '..'), { recursive: true });
+        await writeFile(output, 'fixture output');
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    } finally {
+      this.activeCalls -= 1;
     }
-    return { exitCode: 0, stdout: '', stderr: '' };
   }
 }
 
@@ -272,6 +300,109 @@ describe('runtime process isolation', () => {
       delete process.env.KDENLIVE_MCP_TEST_SECRET;
     }
   });
+
+  it.runIf(process.platform === 'win32')(
+    'sanitizes only Melt and prepends its executable directory',
+    () => {
+      process.env.MLT_REPOSITORY = 'C:\\host\\plugins';
+      process.env.QT_PLUGIN_PATH = 'C:\\host\\qt';
+      try {
+        const melt = runtimeEnvironment('C:\\Kdenlive\\bin\\melt.exe');
+        const ffmpeg = runtimeEnvironment('C:\\Kdenlive\\bin\\ffmpeg.exe');
+        expect(melt.MLT_REPOSITORY).toBeUndefined();
+        expect(melt.QT_PLUGIN_PATH).toBeUndefined();
+        expect(melt.Path ?? melt.PATH).toMatch(/^C:\\Kdenlive\\bin(?:;|$)/u);
+        expect(ffmpeg.MLT_REPOSITORY).toBe('C:\\host\\plugins');
+      } finally {
+        delete process.env.MLT_REPOSITORY;
+        delete process.env.QT_PLUGIN_PATH;
+      }
+    },
+  );
+
+  it('serializes callers fairly and cancels callers waiting for Melt', async () => {
+    let active = 0;
+    let maximum = 0;
+    const executor: CommandExecutor = {
+      async run(): Promise<CommandExecution> {
+        active += 1;
+        maximum = Math.max(maximum, active);
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+        active -= 1;
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    };
+    const coordinator = new MeltExecutionCoordinator(1);
+    await Promise.all([
+      coordinator.run(executor, 'melt', []),
+      coordinator.run(executor, 'melt', []),
+      coordinator.run(executor, 'melt', []),
+    ]);
+    expect(maximum).toBe(1);
+
+    const blocking: CommandExecutor = {
+      async run(_executable, _args, options): Promise<CommandExecution> {
+        return await new Promise((resolvePromise) =>
+          options?.signal?.addEventListener(
+            'abort',
+            () => resolvePromise({ exitCode: -1, stdout: '', stderr: '' }),
+            { once: true },
+          ),
+        );
+      },
+    };
+    const firstController = new AbortController();
+    const waitingController = new AbortController();
+    const first = coordinator.run(blocking, 'melt', [], {
+      signal: firstController.signal,
+    });
+    const waiting = coordinator.run(executor, 'melt', [], {
+      signal: waitingController.signal,
+    });
+    waitingController.abort();
+    await expect(waiting).rejects.toThrow('cancelled while queued');
+    firstController.abort();
+    await first;
+  });
+
+  it('serializes independent coordinators through a shared process lease', async () => {
+    const root = resolve('tmp', `melt-lease-${crypto.randomUUID()}`);
+    roots.push(root);
+    await mkdir(root, { recursive: true });
+    const lockPath = join(root, 'melt.lock');
+    let active = 0;
+    let maximum = 0;
+    const executor: CommandExecutor = {
+      async run(): Promise<CommandExecution> {
+        active += 1;
+        maximum = Math.max(maximum, active);
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 30));
+        active -= 1;
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    };
+    const first = new MeltExecutionCoordinator({ limit: 1, lockPath });
+    const second = new MeltExecutionCoordinator({ limit: 1, lockPath });
+    await Promise.all([
+      first.run(executor, 'melt', []),
+      second.run(executor, 'melt', []),
+    ]);
+    expect(maximum).toBe(1);
+  });
+
+  it('classifies Windows access violations with stable native diagnostics', () => {
+    const error = new MeltExecutionError(
+      'melt.exe',
+      { exitCode: -1_073_741_819, stdout: '', stderr: '' },
+      25,
+    );
+    expect(error).toMatchObject({
+      category: 'access-violation',
+      nativeExitCode: -1_073_741_819,
+      nativeExitCodeHex: '0xC0000005',
+      meltInvoked: true,
+    });
+  });
 });
 
 describe('render jobs', () => {
@@ -328,6 +459,41 @@ describe('render jobs', () => {
     expect(manager.cancel(job.id).status).toBe('cancelled');
     await manager.runUntilIdle();
     expect(executor.calls).toBe(0);
+    manager.close();
+  });
+
+  it('persists native Melt diagnostics and the failed MLT input', async () => {
+    const root = resolve('tmp', `render-failure-${crypto.randomUUID()}`);
+    roots.push(root);
+    const executor: CommandExecutor = {
+      async run(): Promise<CommandExecution> {
+        return { exitCode: -1_073_741_819, stdout: '', stderr: 'native crash' };
+      },
+    };
+    const manager = new RenderJobManager(root, {
+      executor,
+      meltPath: 'melt.exe',
+    });
+    await manager.initialize();
+    const output = join(root, 'failed.mkv');
+    const job = manager.submit({
+      kind: 'export',
+      xml: '<mlt/>',
+      durationFrames: 1,
+      outputPath: output,
+      consumerArguments: [`avformat:${output}`],
+    });
+    await manager.runUntilIdle();
+    expect(manager.get(job.id)).toMatchObject({
+      status: 'failed',
+      failureCategory: 'access-violation',
+      nativeExitCode: -1_073_741_819,
+      diagnosticUri: `kdenlive://diagnostics/${job.id}`,
+      meltInvoked: true,
+    });
+    expect(manager.diagnostic(job.id)).toMatchObject({
+      nativeExitCodeHex: '0xC0000005',
+    });
     manager.close();
   });
 
@@ -396,7 +562,54 @@ describe('preview cache', () => {
     expect(second.cached).toBe(true);
     expect(second.path).toBe(first.path);
     expect(executor.calls).toBe(1);
+    expect(executor.argumentLists[0]).toContain('out=10');
+    expect(executor.argumentLists[0]).toContain('vframes=11');
+    expect(executor.argumentLists[0]).toContain('update=1');
+    expect(
+      executor.argumentLists[0]?.some((argument) => argument.startsWith('in=')),
+    ).toBe(false);
   });
+
+  it('serializes contact-sheet frame renders for MLT stability', async () => {
+    const root = resolve('tmp', `contact-sheet-${crypto.randomUUID()}`);
+    roots.push(root);
+    const executor = new FixtureExecutor();
+    executor.failOnConcurrent = true;
+    const pipeline = new PreviewPipeline(root, {
+      executor,
+      meltPath: 'fixture-melt',
+      ffmpegPath: 'fixture-ffmpeg',
+    });
+
+    const artifact = await pipeline.renderContactSheet(
+      fixtureProject(),
+      [10, 20, 30],
+      { projectRoot: root },
+    );
+
+    expect(artifact.kind).toBe('contact-sheet');
+    expect(executor.calls).toBe(4);
+    expect(executor.maxConcurrentCalls).toBe(1);
+  });
+
+  it.each([[[1]], [[1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]]])(
+    'renders contact sheets containing %s frame(s)',
+    async (frames) => {
+      const root = resolve('tmp', `contact-bounds-${crypto.randomUUID()}`);
+      roots.push(root);
+      const pipeline = new PreviewPipeline(root, {
+        executor: new FixtureExecutor(),
+        meltPath: 'fixture-melt',
+        ffmpegPath: 'fixture-ffmpeg',
+      });
+      const artifact = await pipeline.renderContactSheet(
+        fixtureProject(),
+        frames,
+        { projectRoot: root },
+      );
+      expect(artifact.kind).toBe('contact-sheet');
+    },
+  );
 });
 
 describe('output verification', () => {

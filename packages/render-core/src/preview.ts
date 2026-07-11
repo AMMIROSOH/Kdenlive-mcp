@@ -7,6 +7,8 @@ import { serializeProject, type Project } from '@kdenlive-mcp/project-core';
 
 import { compileProject, type CompilerOptions } from './compiler.js';
 import {
+  MeltExecutionCoordinator,
+  MeltExecutionError,
   resolveRuntimeExecutable,
   SpawnCommandExecutor,
   type CommandExecutor,
@@ -19,11 +21,70 @@ export interface PreviewArtifact {
   readonly kind: 'frame' | 'contact-sheet' | 'range' | 'audio' | 'waveform';
 }
 
+const LABEL_GLYPHS: Readonly<Record<string, readonly string[]>> = {
+  ' ': ['00000', '00000', '00000', '00000', '00000', '00000', '00000'],
+  f: ['00110', '01001', '01000', '11100', '01000', '01000', '01000'],
+  r: ['00000', '10110', '11001', '10000', '10000', '10000', '10000'],
+  a: ['00000', '01110', '00001', '01111', '10001', '10011', '01101'],
+  m: ['00000', '11011', '10101', '10101', '10101', '10101', '10101'],
+  e: ['00000', '01110', '10001', '11111', '10000', '10001', '01110'],
+  '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
+  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  '2': ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
+  '3': ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
+  '4': ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
+  '5': ['11111', '10000', '10000', '11110', '00001', '00001', '11110'],
+  '6': ['01110', '10000', '10000', '11110', '10001', '10001', '01110'],
+  '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+  '9': ['01110', '10001', '10001', '01111', '00001', '00001', '01110'],
+};
+
+function frameLabel(frame: number): Buffer {
+  const text = `frame ${String(frame)}`;
+  const scale = 3;
+  const padding = 6;
+  const width = padding * 2 + (text.length * 6 - 1) * scale;
+  const height = padding * 2 + 7 * scale;
+  const pixels = Buffer.alloc(width * height * 3);
+  for (
+    let characterIndex = 0;
+    characterIndex < text.length;
+    characterIndex += 1
+  ) {
+    const character = text.charAt(characterIndex);
+    const glyph = LABEL_GLYPHS[character];
+    if (glyph === undefined) continue;
+    for (const [row, bits] of glyph.entries()) {
+      for (let column = 0; column < bits.length; column += 1) {
+        const bit = bits.charAt(column);
+        if (bit !== '1') continue;
+        for (let y = 0; y < scale; y += 1) {
+          for (let x = 0; x < scale; x += 1) {
+            const pixelX = padding + (characterIndex * 6 + column) * scale + x;
+            const pixelY = padding + row * scale + y;
+            pixels.fill(
+              255,
+              (pixelY * width + pixelX) * 3,
+              (pixelY * width + pixelX) * 3 + 3,
+            );
+          }
+        }
+      }
+    }
+  }
+  return Buffer.concat([
+    Buffer.from(`P6\n${String(width)} ${String(height)}\n255\n`, 'ascii'),
+    pixels,
+  ]);
+}
+
 export class PreviewPipeline {
   readonly root: string;
   readonly #executor: CommandExecutor;
   readonly #melt: string;
   readonly #ffmpeg: string;
+  readonly #meltCoordinator: MeltExecutionCoordinator;
 
   constructor(
     root: string,
@@ -31,12 +92,15 @@ export class PreviewPipeline {
       readonly executor?: CommandExecutor;
       readonly meltPath?: string;
       readonly ffmpegPath?: string;
+      readonly meltCoordinator?: MeltExecutionCoordinator;
     } = {},
   ) {
     this.root = resolve(root);
     this.#executor = options.executor ?? new SpawnCommandExecutor();
     this.#melt = options.meltPath ?? resolveRuntimeExecutable('melt');
     this.#ffmpeg = options.ffmpegPath ?? resolveRuntimeExecutable('ffmpeg');
+    this.#meltCoordinator =
+      options.meltCoordinator ?? new MeltExecutionCoordinator();
   }
 
   async renderFrame(
@@ -58,12 +122,13 @@ export class PreviewPipeline {
         await this.#withXml(compiled.xml, key, async (xmlPath) => {
           await this.#run(this.#melt, [
             xmlPath,
-            `in=${String(frame)}`,
             `out=${String(frame)}`,
             '-consumer',
             `avformat:${temporary}`,
             'f=image2',
             'vcodec=png',
+            `vframes=${String(frame + 1)}`,
+            'update=1',
             'real_time=-1',
             'terminate_on_pause=1',
           ]);
@@ -206,66 +271,62 @@ export class PreviewPipeline {
       key,
       '.png',
       async (temporary) => {
-        const images = await Promise.all(
-          frames.map(async (frame, index) => {
-            const suffix = createHash('sha256')
-              .update(`${String(frame)}:${String(index)}`)
-              .digest('hex')
-              .slice(0, 12);
-            const labeled: Project = {
-              ...structuredClone(project),
-              texts: [
-                ...project.texts,
-                {
-                  id: `00000000-0000-4000-8000-${suffix}`,
-                  start: frame,
-                  end: frame + 1,
-                  text: `frame ${String(frame)}`,
-                  style: {
-                    preset: 'contact-sheet-label',
-                    fontFamily: 'Sans',
-                    fontSize: Math.max(
-                      2,
-                      Math.round((12 * project.settings.height) / 1080),
-                    ),
-                    color: '#ffffffff',
-                    backgroundColor: '#000000c0',
-                    x: 0.02,
-                    y: 0.02,
-                    width: 0.45,
-                    height: 0.1,
-                    horizontalAlign: 'left',
-                    verticalAlign: 'top',
-                  },
-                },
-              ],
-            };
-            return await this.renderFrame(labeled, frame, compilerOptions);
+        const images: PreviewArtifact[] = [];
+        // Keep Melt calls sequential and render the unmodified project. Some
+        // Windows MLT builds access-violate when a temporary qtext producer is
+        // added to otherwise valid still-image timelines. FFmpeg adds labels
+        // below after Melt has produced each composited frame.
+        for (const frame of frames)
+          images.push(await this.renderFrame(project, frame, compilerOptions));
+        const labelDirectory = join(this.root, 'tmp');
+        await mkdir(labelDirectory, { recursive: true });
+        const labels = frames.map((_, index) =>
+          join(labelDirectory, `${key}-label-${String(index)}.ppm`),
+        );
+        await Promise.all(
+          labels.map(async (path, index) => {
+            const frame = frames[index];
+            if (frame === undefined)
+              throw new Error('Missing contact-sheet frame');
+            await writeFile(path, frameLabel(frame));
           }),
         );
-        const inputs = images.flatMap((image) => ['-i', image.path]);
+        const inputs = [
+          ...images.map((image) => image.path),
+          ...labels,
+        ].flatMap((path) => ['-i', path]);
         const scales = frames
           .map(
-            (_, index) => `[${String(index)}:v]scale=320:-1[v${String(index)}]`,
+            (_, index) =>
+              `[${String(index)}:v]scale=320:-1[frame${String(index)}];[frame${String(index)}][${String(frames.length + index)}:v]overlay=0:0[v${String(index)}]`,
           )
           .join(';');
         const stackInputs = frames
           .map((_, index) => `[v${String(index)}]`)
           .join('');
-        const filter = `${scales};${stackInputs}hstack=inputs=${String(frames.length)}[out]`;
-        await this.#run(this.#ffmpeg, [
-          '-v',
-          'error',
-          ...inputs,
-          '-filter_complex',
-          filter,
-          '-map',
-          '[out]',
-          '-frames:v',
-          '1',
-          '-y',
-          temporary,
-        ]);
+        const filter =
+          frames.length === 1
+            ? `${scales};[v0]null[out]`
+            : `${scales};${stackInputs}hstack=inputs=${String(frames.length)}[out]`;
+        try {
+          await this.#run(this.#ffmpeg, [
+            '-v',
+            'error',
+            ...inputs,
+            '-filter_complex',
+            filter,
+            '-map',
+            '[out]',
+            '-frames:v',
+            '1',
+            '-y',
+            temporary,
+          ]);
+        } finally {
+          await Promise.all(
+            labels.map(async (path) => await rm(path, { force: true })),
+          );
+        }
       },
     );
   }
@@ -317,11 +378,27 @@ export class PreviewPipeline {
   }
 
   async #run(executable: string, args: readonly string[]): Promise<void> {
-    const result = await this.#executor.run(executable, args, {
+    const startedAt = Date.now();
+    const options = {
       timeoutMs: 600_000,
       maxOutputBytes: 16 * 1024 * 1024,
-    });
+    };
+    const isMelt = executable === this.#melt;
+    const result = isMelt
+      ? await this.#meltCoordinator.run(
+          this.#executor,
+          executable,
+          args,
+          options,
+        )
+      : await this.#executor.run(executable, args, options);
     if (result.exitCode !== 0) {
+      if (isMelt)
+        throw new MeltExecutionError(
+          executable,
+          result,
+          Date.now() - startedAt,
+        );
       throw new Error(
         `${executable} exited with ${String(result.exitCode)}: ${result.stderr.slice(-2000)}`,
       );

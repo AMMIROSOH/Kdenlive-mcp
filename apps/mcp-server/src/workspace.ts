@@ -7,6 +7,7 @@ import {
   BUILTIN_EXPORT_PROFILES,
   PreviewPipeline,
   RenderJobManager,
+  MeltExecutionCoordinator,
   compileProject,
   consumerArguments,
   profileCatalog,
@@ -128,8 +129,12 @@ export class WorkspaceService {
   private constructor(options: WorkspaceOptions) {
     this.allowedRoots = options.allowedRoots.map((root) => resolve(root));
     this.stateRoot = resolve(options.stateRoot);
+    const meltCoordinator = new MeltExecutionCoordinator({
+      lockPath: join(this.stateRoot, 'melt.lock'),
+    });
     this.#jobs = new RenderJobManager(join(this.stateRoot, 'render-jobs'), {
       ...(options.meltPath === undefined ? {} : { meltPath: options.meltPath }),
+      meltCoordinator,
     });
     this.#owners = new JobOwnershipStore(
       join(this.stateRoot, 'ownership.sqlite'),
@@ -143,6 +148,7 @@ export class WorkspaceService {
         ...(options.ffmpegPath === undefined
           ? {}
           : { ffmpegPath: options.ffmpegPath }),
+        meltCoordinator,
       },
     );
   }
@@ -442,6 +448,11 @@ export class WorkspaceService {
 
   jobs(clientId: string): RenderJob[] {
     return this.#owners.ids(clientId).map((id) => this.#jobs.get(id));
+  }
+
+  diagnostic(clientId: string, jobId: string): unknown {
+    this.#owners.assert(jobId, clientId);
+    return this.#jobs.diagnostic(jobId);
   }
 
   cancelJob(clientId: string, jobId: string): RenderJob {

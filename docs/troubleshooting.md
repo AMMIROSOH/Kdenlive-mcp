@@ -28,9 +28,15 @@ new state, and retry with the returned revision. Do not increment revisions by g
 
 ## Render fails
 
-Call `job_get`, inspect its bounded log path, run `--doctor`, and try the FFV1
+`project_validate` only checks project structure; it does not invoke Melt and is
+not render QA. Likewise, an audio preview, cached artifact, or alternate frame
+preview does not prove that contact-sheet or export rendering is healthy.
+
+Call `job_get`, inspect its bounded log path and `diagnosticUri`, run `--doctor`, and try the FFV1
 mezzanine profile to separate timeline problems from delivery-codec availability.
-Keep the generated acceptance report when filing a bug.
+On Windows, Melt calls are serialized and isolated from host Qt/MLT environment
+variables. Native crashes block the workflow rather than falling back to another
+renderer. Keep the generated diagnostic and acceptance report when filing a bug.
 
 ## HTTP rejected
 

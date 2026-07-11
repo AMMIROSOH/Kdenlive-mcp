@@ -108,7 +108,11 @@ function resolveProjectSettings(
 type ToolEnvelope = {
   readonly ok: boolean;
   readonly data?: unknown;
-  readonly error?: { readonly code: string; readonly message: string };
+  readonly error?: {
+    readonly code: string;
+    readonly message: string;
+    readonly details?: unknown;
+  };
 };
 
 function success(data: unknown) {
@@ -125,6 +129,7 @@ function errorCode(error: unknown): string {
   if (error.name === 'ProjectValidationError') return 'PROJECT_INVALID';
   if (error.name === 'TimelineEditError') return 'TIMELINE_EDIT_INVALID';
   if (error.name === 'ZodError') return 'INVALID_ARGUMENTS';
+  if (error.name === 'MeltExecutionError') return 'MELT_EXECUTION_FAILED';
   if (error.message.includes('outside configured roots'))
     return 'PATH_OUTSIDE_ROOTS';
   if (error.message.includes('another client')) return 'JOB_FORBIDDEN';
@@ -140,7 +145,21 @@ async function guarded(action: () => Promise<unknown> | unknown) {
     const message = cause instanceof Error ? cause.message : String(cause);
     const envelope: ToolEnvelope = {
       ok: false,
-      error: { code: errorCode(cause), message: message.slice(0, 2_000) },
+      error: {
+        code: errorCode(cause),
+        message: message.slice(0, 2_000),
+        ...(cause instanceof Error && cause.name === 'MeltExecutionError'
+          ? {
+              details: {
+                failureCategory: Reflect.get(cause, 'category'),
+                executable: Reflect.get(cause, 'executable'),
+                nativeExitCode: Reflect.get(cause, 'nativeExitCode'),
+                nativeExitCodeHex: Reflect.get(cause, 'nativeExitCodeHex'),
+                meltInvoked: true,
+              },
+            }
+          : {}),
+      },
     };
     return {
       isError: true,
@@ -789,6 +808,28 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       };
     },
   );
+  server.registerResource(
+    'job-diagnostic',
+    new ResourceTemplate('kdenlive://diagnostics/{jobId}', {
+      list: undefined,
+    }),
+    {
+      description: 'Structured Melt failure diagnostic for an owned job',
+      mimeType: 'application/json',
+    },
+    (uri, variables) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: 'application/json',
+          text: JSON.stringify(
+            workspace.diagnostic(clientId, String(variables.jobId)),
+          ),
+        },
+      ],
+    }),
+  );
+
   server.registerResource(
     'job-artifact',
     new ResourceTemplate('kdenlive://artifacts/{jobId}', { list: undefined }),
