@@ -62,3 +62,44 @@ bounded and must not be parsed as a second API.
 
 The registered Zod schemas exposed by MCP tool discovery are authoritative for
 individual fields and limits.
+
+## Mutation examples
+
+Caption frames use the project frame rate. Adding a caption requires its complete
+style; updating one uses an `id` and a partial `patch`:
+
+```json
+{
+  "projectId": "00000000-0000-0000-0000-000000000000",
+  "expectedRevision": 3,
+  "action": "add",
+  "items": [
+    {
+      "start": 0,
+      "end": 90,
+      "text": "Hello",
+      "style": { "preset": "default", "position": "bottom" }
+    }
+  ]
+}
+```
+
+Clip properties are nested under `properties`. All nested property groups are
+partial, so an audio-only loudness adjustment does not require transform data:
+
+```json
+{
+  "projectId": "00000000-0000-0000-0000-000000000000",
+  "expectedRevision": 4,
+  "updates": [
+    {
+      "clipId": "00000000-0000-0000-0000-000000000001",
+      "properties": { "audio": { "volume": 2.5 } }
+    }
+  ]
+}
+```
+
+Semantically invalid timeline edits return `TIMELINE_EDIT_INVALID`. Its bounded
+`error.details.diagnostics` array contains diagnostic codes, paths, messages,
+and related entity IDs when available.

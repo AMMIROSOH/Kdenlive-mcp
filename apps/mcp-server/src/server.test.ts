@@ -13,7 +13,15 @@ import { WorkspaceService } from './workspace.js';
 interface Envelope {
   readonly ok: boolean;
   readonly data?: Record<string, unknown>;
-  readonly error?: { readonly code: string };
+  readonly error?: {
+    readonly code: string;
+    readonly details?: {
+      readonly diagnostics?: readonly {
+        readonly code: string;
+        readonly path: string;
+      }[];
+    };
+  };
 }
 
 function envelope(result: Awaited<ReturnType<Client['callTool']>>): Envelope {
@@ -144,6 +152,119 @@ describe('Milestone 4 MCP protocol', () => {
       color: { primaries: 'bt709', transfer: 'bt709' },
       exportDefaults: { profile: 'youtube-1080p' },
     });
+  });
+
+  it('publishes and enforces typed caption and clip property schemas', async () => {
+    const { root, client } = await session();
+    const tools = await client.listTools();
+    const captionTool = tools.tools.find(
+      (tool) => tool.name === 'caption_edit',
+    );
+    const propertyTool = tools.tools.find(
+      (tool) => tool.name === 'clip_set_properties',
+    );
+    expect(JSON.stringify(captionTool?.inputSchema)).toContain('position');
+    expect(JSON.stringify(propertyTool?.inputSchema)).toContain('properties');
+    expect(JSON.stringify(propertyTool?.inputSchema)).toContain('volume');
+
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'typed-edits'), name: 'Typed edits' },
+      }),
+    );
+    const projectId = String(created.data?.id);
+    const added = envelope(
+      await client.callTool({
+        name: 'caption_edit',
+        arguments: {
+          projectId,
+          expectedRevision: 0,
+          action: 'add',
+          items: [
+            {
+              start: 0,
+              end: 30,
+              text: 'Hello',
+              style: { preset: 'default', position: 'bottom' },
+            },
+          ],
+        },
+      }),
+    );
+    expect(added.ok).toBe(true);
+    expect(added.data?.revision).toBe(1);
+
+    const malformed = await client.callTool({
+      name: 'clip_set_properties',
+      arguments: {
+        projectId,
+        expectedRevision: 1,
+        updates: [
+          {
+            clipId: '98fc1dc9-95b2-447b-bb98-221613dd2fc7',
+            audio: { volume: 2 },
+          },
+        ],
+      },
+    });
+    expect(malformed.isError).toBe(true);
+    expect(JSON.stringify(malformed.content)).toContain('properties');
+
+    const nested = envelope(
+      await client.callTool({
+        name: 'clip_set_properties',
+        arguments: {
+          projectId,
+          expectedRevision: 1,
+          updates: [
+            {
+              clipId: '98fc1dc9-95b2-447b-bb98-221613dd2fc7',
+              properties: { audio: { volume: 2 } },
+            },
+          ],
+        },
+      }),
+    );
+    expect(nested.error?.code).toBe('TIMELINE_EDIT_INVALID');
+  });
+
+  it('returns caption validation diagnostics through the MCP envelope', async () => {
+    const { root, client } = await session();
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: {
+          path: join(root, 'invalid-caption'),
+          name: 'Invalid caption',
+        },
+      }),
+    );
+    const invalid = envelope(
+      await client.callTool({
+        name: 'caption_edit',
+        arguments: {
+          projectId: String(created.data?.id),
+          expectedRevision: 0,
+          action: 'add',
+          items: [
+            {
+              start: 30,
+              end: 10,
+              text: 'Invalid range',
+              style: { preset: 'default', position: 'bottom' },
+            },
+          ],
+        },
+      }),
+    );
+    expect(invalid.error?.code).toBe('TIMELINE_EDIT_INVALID');
+    expect(invalid.error?.details?.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'CAPTION_INVALID_RANGE',
+        path: 'captions',
+      }),
+    ]);
   });
 
   it('renders range previews at the project frame rate', async () => {

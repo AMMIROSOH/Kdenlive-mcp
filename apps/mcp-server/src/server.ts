@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import {
   DEFAULT_PROJECT_SETTINGS,
+  InvalidTimelineEditError,
   addCaptions,
   addClips,
   addMarkers,
@@ -42,6 +43,78 @@ const projectId = z.string().uuid();
 const expectedRevision = z.number().int().nonnegative();
 const entityId = z.string().uuid();
 const unknownRecord = z.record(z.string(), z.unknown());
+const clipTransformPatchSchema = z
+  .object({
+    x: z.number().optional(),
+    y: z.number().optional(),
+    width: z.number().positive().optional(),
+    height: z.number().positive().optional(),
+    rotation: z.number().optional(),
+  })
+  .strict();
+const clipCropPatchSchema = z
+  .object({
+    top: z.number().nonnegative().optional(),
+    right: z.number().nonnegative().optional(),
+    bottom: z.number().nonnegative().optional(),
+    left: z.number().nonnegative().optional(),
+  })
+  .strict();
+const clipAudioPatchSchema = z
+  .object({
+    volume: z.number().nonnegative().optional(),
+    pan: z.number().min(-1).max(1).optional(),
+    muted: z.boolean().optional(),
+  })
+  .strict();
+const clipPropertyPatchSchema = z
+  .object({
+    transform: clipTransformPatchSchema.optional(),
+    crop: clipCropPatchSchema.optional(),
+    opacity: z.number().min(0).max(1).optional(),
+    audio: clipAudioPatchSchema.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one clip property is required',
+  });
+const clipPropertyUpdateSchema = z
+  .object({
+    clipId: entityId,
+    properties: clipPropertyPatchSchema,
+  })
+  .strict();
+const captionStyleSchema = z
+  .object({
+    preset: z.string().min(1),
+    position: z.enum(['top', 'center', 'bottom']),
+  })
+  .strict();
+const captionAddItemSchema = z
+  .object({
+    id: entityId.optional(),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().positive(),
+    text: z.string().min(1),
+    style: captionStyleSchema,
+  })
+  .strict();
+const captionUpdateItemSchema = z
+  .object({
+    id: entityId,
+    patch: z
+      .object({
+        start: z.number().int().nonnegative().optional(),
+        end: z.number().int().positive().optional(),
+        text: z.string().min(1).optional(),
+        style: captionStyleSchema.partial().strict().optional(),
+      })
+      .strict()
+      .refine((value) => Object.keys(value).length > 0, {
+        message: 'At least one caption field is required',
+      }),
+  })
+  .strict();
 const projectSettingsOverridesSchema = z
   .object({
     fps: z
@@ -128,6 +201,7 @@ function errorCode(error: unknown): string {
   if (error.name === 'RevisionConflictError') return 'REVISION_CONFLICT';
   if (error.name === 'ProjectValidationError') return 'PROJECT_INVALID';
   if (error.name === 'TimelineEditError') return 'TIMELINE_EDIT_INVALID';
+  if (error.name === 'InvalidTimelineEditError') return 'TIMELINE_EDIT_INVALID';
   if (error.name === 'ZodError') return 'INVALID_ARGUMENTS';
   if (error.name === 'MeltExecutionError') return 'MELT_EXECUTION_FAILED';
   if (error.message.includes('outside configured roots'))
@@ -148,17 +222,24 @@ async function guarded(action: () => Promise<unknown> | unknown) {
       error: {
         code: errorCode(cause),
         message: message.slice(0, 2_000),
-        ...(cause instanceof Error && cause.name === 'MeltExecutionError'
+        ...(cause instanceof InvalidTimelineEditError
           ? {
               details: {
-                failureCategory: Reflect.get(cause, 'category'),
-                executable: Reflect.get(cause, 'executable'),
-                nativeExitCode: Reflect.get(cause, 'nativeExitCode'),
-                nativeExitCodeHex: Reflect.get(cause, 'nativeExitCodeHex'),
-                meltInvoked: true,
+                diagnostics: cause.diagnostics.slice(0, 100),
+                truncated: cause.diagnostics.length > 100,
               },
             }
-          : {}),
+          : cause instanceof Error && cause.name === 'MeltExecutionError'
+            ? {
+                details: {
+                  failureCategory: Reflect.get(cause, 'category'),
+                  executable: Reflect.get(cause, 'executable'),
+                  nativeExitCode: Reflect.get(cause, 'nativeExitCode'),
+                  nativeExitCodeHex: Reflect.get(cause, 'nativeExitCodeHex'),
+                  meltInvoked: true,
+                },
+              }
+            : {}),
       },
     };
     return {
@@ -485,7 +566,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
   mutation(
     'clip_set_properties',
     'Set batched transform, crop, opacity, and audio properties.',
-    { updates: z.array(unknownRecord).min(1).max(500) },
+    { updates: z.array(clipPropertyUpdateSchema).min(1).max(500) },
     async (project, input) =>
       await setClipProperties(
         project,
@@ -564,7 +645,37 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
     );
   };
   timedEdit('text', addTexts, updateTexts, removeTexts);
-  timedEdit('caption', addCaptions, updateCaptions, removeCaptions);
+  mutation(
+    'caption_edit',
+    'Add, update, or remove timed captions as one mutation.',
+    {
+      action: z.enum(['add', 'update', 'remove']),
+      items: z
+        .array(z.union([captionAddItemSchema, captionUpdateItemSchema]))
+        .max(500)
+        .default([]),
+      ids: z.array(entityId).max(500).default([]),
+    },
+    async (project, input) => {
+      if (input.action === 'add')
+        return await addCaptions(
+          project,
+          z
+            .array(captionAddItemSchema)
+            .parse(input.items) as unknown as Parameters<typeof addCaptions>[1],
+        );
+      if (input.action === 'update')
+        return await updateCaptions(
+          project,
+          z
+            .array(captionUpdateItemSchema)
+            .parse(input.items) as unknown as Parameters<
+            typeof updateCaptions
+          >[1],
+        );
+      return await removeCaptions(project, input.ids);
+    },
+  );
   timedEdit('marker', addMarkers, updateMarkers, removeMarkers);
 
   server.registerTool(
