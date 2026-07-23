@@ -618,6 +618,16 @@ describe('render jobs', () => {
         consumerArguments: [`avformat:${output}`],
       }),
     );
+    const orderedIds = [
+      'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      '00000000-0000-4000-8000-000000000000',
+    ];
+    const database = new DatabaseSync(join(root, 'jobs.sqlite'));
+    for (const [index, job] of jobs.entries())
+      database
+        .prepare('UPDATE render_jobs SET id=?,created_at=? WHERE id=?')
+        .run(orderedIds[index], '2026-01-01T00:00:00.000Z', job.id);
+    database.close();
 
     await manager.runUntilIdle();
 
@@ -626,7 +636,7 @@ describe('render jobs', () => {
         arguments_.find((argument) => argument.startsWith('avformat:')),
       ),
     ).toEqual(outputs.map((output) => `avformat:${output}`));
-    expect(jobs.map((job) => manager.get(job.id).attempts)).toEqual([1, 1]);
+    expect(orderedIds.map((id) => manager.get(id).attempts)).toEqual([1, 1]);
     manager.close();
   });
 

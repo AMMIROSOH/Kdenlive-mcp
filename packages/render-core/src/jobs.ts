@@ -261,13 +261,9 @@ export class RenderJobManager {
 
   list(status?: RenderJobStatus): RenderJob[] {
     const rows = (status === undefined
-      ? this.#database
-          .prepare('SELECT * FROM render_jobs ORDER BY created_at,id')
-          .all()
+      ? this.#database.prepare('SELECT * FROM render_jobs ORDER BY rowid').all()
       : this.#database
-          .prepare(
-            'SELECT * FROM render_jobs WHERE status=? ORDER BY created_at,id',
-          )
+          .prepare('SELECT * FROM render_jobs WHERE status=? ORDER BY rowid')
           .all(status)) as unknown as JobRow[];
     return rows.map(rowToJob);
   }
@@ -642,7 +638,7 @@ export class RenderJobManager {
     try {
       const row = this.#database
         .prepare(
-          "SELECT * FROM render_jobs WHERE status='queued' AND attempts<max_attempts ORDER BY created_at,id LIMIT 1",
+          "SELECT * FROM render_jobs WHERE status='queued' AND attempts<max_attempts ORDER BY rowid LIMIT 1",
         )
         .get() as JobRow | undefined;
       if (row === undefined) {
