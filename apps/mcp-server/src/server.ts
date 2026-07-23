@@ -34,6 +34,10 @@ import {
   type EditResult,
   type ProjectSettings,
 } from '@kdenlive-mcp/project-core';
+import {
+  BUILTIN_EXPORT_PROFILES,
+  MeltBusyError,
+} from '@kdenlive-mcp/render-core';
 
 import { AGENT_INSTRUCTIONS } from './instructions.js';
 import { WorkspaceService } from './workspace.js';
@@ -146,11 +150,22 @@ const projectSettingsOverridesSchema = z
 
 type ProjectSettingsOverrides = z.infer<typeof projectSettingsOverridesSchema>;
 
+const mediaExportProfileIds = BUILTIN_EXPORT_PROFILES.filter(
+  (profile) => profile.delivery === 'media',
+).map((profile) => profile.id);
+
+function assertMediaExportProfile(profileId: string): void {
+  if (mediaExportProfileIds.includes(profileId)) return;
+  throw new Error(
+    `Unknown media export profile: ${profileId}. Valid profile IDs: ${mediaExportProfileIds.join(', ')}`,
+  );
+}
+
 function resolveProjectSettings(
   overrides: ProjectSettingsOverrides | undefined,
 ): ProjectSettings {
   if (overrides === undefined) return structuredClone(DEFAULT_PROJECT_SETTINGS);
-  return {
+  const settings: ProjectSettings = {
     fps: overrides.fps ?? DEFAULT_PROJECT_SETTINGS.fps,
     width: overrides.width ?? DEFAULT_PROJECT_SETTINGS.width,
     height: overrides.height ?? DEFAULT_PROJECT_SETTINGS.height,
@@ -176,6 +191,8 @@ function resolveProjectSettings(
         DEFAULT_PROJECT_SETTINGS.exportDefaults.audioCodec,
     },
   };
+  assertMediaExportProfile(settings.exportDefaults.profile);
+  return settings;
 }
 
 type ToolEnvelope = {
@@ -204,6 +221,7 @@ function errorCode(error: unknown): string {
   if (error.name === 'InvalidTimelineEditError') return 'TIMELINE_EDIT_INVALID';
   if (error.name === 'ZodError') return 'INVALID_ARGUMENTS';
   if (error.name === 'MeltExecutionError') return 'MELT_EXECUTION_FAILED';
+  if (error.name === 'MeltBusyError') return 'MELT_BUSY';
   if (error.message.includes('outside configured roots'))
     return 'PATH_OUTSIDE_ROOTS';
   if (error.message.includes('another client')) return 'JOB_FORBIDDEN';
@@ -222,24 +240,26 @@ async function guarded(action: () => Promise<unknown> | unknown) {
       error: {
         code: errorCode(cause),
         message: message.slice(0, 2_000),
-        ...(cause instanceof InvalidTimelineEditError
-          ? {
-              details: {
-                diagnostics: cause.diagnostics.slice(0, 100),
-                truncated: cause.diagnostics.length > 100,
-              },
-            }
-          : cause instanceof Error && cause.name === 'MeltExecutionError'
+        ...(cause instanceof MeltBusyError
+          ? { details: { retryable: cause.retryable } }
+          : cause instanceof InvalidTimelineEditError
             ? {
                 details: {
-                  failureCategory: Reflect.get(cause, 'category'),
-                  executable: Reflect.get(cause, 'executable'),
-                  nativeExitCode: Reflect.get(cause, 'nativeExitCode'),
-                  nativeExitCodeHex: Reflect.get(cause, 'nativeExitCodeHex'),
-                  meltInvoked: true,
+                  diagnostics: cause.diagnostics.slice(0, 100),
+                  truncated: cause.diagnostics.length > 100,
                 },
               }
-            : {}),
+            : cause instanceof Error && cause.name === 'MeltExecutionError'
+              ? {
+                  details: {
+                    failureCategory: Reflect.get(cause, 'category'),
+                    executable: Reflect.get(cause, 'executable'),
+                    nativeExitCode: Reflect.get(cause, 'nativeExitCode'),
+                    nativeExitCodeHex: Reflect.get(cause, 'nativeExitCodeHex'),
+                    meltInvoked: true,
+                  },
+                }
+              : {}),
       },
     };
     return {

@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { RenderJobManager } from '@kdenlive-mcp/render-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createMcpServer } from './server.js';
@@ -16,6 +17,7 @@ interface Envelope {
   readonly error?: {
     readonly code: string;
     readonly details?: {
+      readonly retryable?: boolean;
       readonly diagnostics?: readonly {
         readonly code: string;
         readonly path: string;
@@ -151,6 +153,54 @@ describe('Milestone 4 MCP protocol', () => {
       audioSampleRate: 48_000,
       color: { primaries: 'bt709', transfer: 'bt709' },
       exportDefaults: { profile: 'youtube-1080p' },
+    });
+  });
+
+  it('validates project export defaults and lists accepted render profiles', async () => {
+    const { root, client } = await session();
+    const invalidProject = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: {
+          path: join(root, 'invalid-export-default'),
+          name: 'Invalid export default',
+          settings: { exportDefaults: { profile: 'h264' } },
+        },
+      }),
+    );
+    expect(invalidProject).toMatchObject({
+      ok: false,
+      error: {
+        code: 'OPERATION_FAILED',
+        message: expect.stringContaining('Valid profile IDs: youtube-1080p'),
+      },
+    });
+
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: {
+          path: join(root, 'render-profile'),
+          name: 'Render profile',
+        },
+      }),
+    );
+    const invalidRender = envelope(
+      await client.callTool({
+        name: 'render_submit',
+        arguments: {
+          projectId: String(created.data?.id),
+          profileId: 'h264_1080p30_aac',
+          outputName: 'output',
+        },
+      }),
+    );
+    expect(invalidRender).toMatchObject({
+      ok: false,
+      error: {
+        code: 'OPERATION_FAILED',
+        message: expect.stringContaining('Valid profile IDs: youtube-1080p'),
+      },
     });
   });
 
@@ -337,6 +387,37 @@ describe('Milestone 4 MCP protocol', () => {
     expect(request.consumerArguments).toContain('vframes=11');
     expect(request.durationFrames).toBe(11);
     expect(request.meltArguments).toEqual(['out=10']);
+  });
+
+  it('rejects Melt previews while an export is queued or running', async () => {
+    const { root, client } = await session();
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'busy-preview'), name: 'Busy Preview' },
+      }),
+    );
+    const projectId = String(created.data?.id);
+    const jobs = new RenderJobManager(join(root, '.state', 'render-jobs'));
+    jobs.submit({
+      kind: 'export',
+      xml: '<mlt/>',
+      durationFrames: 1,
+      outputPath: join(root, 'busy.mkv'),
+      consumerArguments: [`avformat:${join(root, 'busy.mkv')}`],
+    });
+
+    const preview = envelope(
+      await client.callTool({
+        name: 'preview_submit',
+        arguments: { projectId, kind: 'frame', start: 0 },
+      }),
+    );
+    expect(preview).toMatchObject({
+      ok: false,
+      error: { code: 'MELT_BUSY', details: { retryable: true } },
+    });
+    jobs.close();
   });
 
   it('blocks root escapes, unsafe artifact names, and cross-client job access', async () => {

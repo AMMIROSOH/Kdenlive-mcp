@@ -191,8 +191,11 @@ export class MeltExecutionCoordinator {
       releaseProcessLease = await this.#acquireProcessLease(options.signal);
       return await executor.run(executable, args, options);
     } finally {
-      await releaseProcessLease?.();
-      release();
+      try {
+        await releaseProcessLease?.();
+      } finally {
+        release();
+      }
     }
   }
 

@@ -56,9 +56,12 @@ limited to 32 MiB per resource read. Larger export paths remain in the job resul
 ## Error codes
 
 `REVISION_CONFLICT`, `PROJECT_INVALID`, `TIMELINE_EDIT_INVALID`,
-`INVALID_ARGUMENTS`, `PATH_OUTSIDE_ROOTS`, `JOB_FORBIDDEN`, `NOT_FOUND`,
+`INVALID_ARGUMENTS`, `MELT_BUSY`, `PATH_OUTSIDE_ROOTS`, `JOB_FORBIDDEN`, `NOT_FOUND`,
 `OPERATION_FAILED`, and `INTERNAL_ERROR` are stable public codes. Details remain
 bounded and must not be parsed as a second API.
+
+`MELT_BUSY` is retryable and is returned for Melt-backed previews while an
+export is queued or running. Export jobs remain FIFO and execute one at a time.
 
 The registered Zod schemas exposed by MCP tool discovery are authoritative for
 individual fields and limits.

@@ -10,7 +10,7 @@
     "build": "tsc -b",
     "acceptance": "node dist/acceptance-cli.js",
     "start": "node dist/cli.js",
-    "test": "vitest run src"
+    "test": "vitest run --root ../.. --config vitest.config.ts apps/mcp-server/src"
   },
   "dependencies": {
     "@kdenlive-mcp/project-core": "workspace:*",

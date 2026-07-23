@@ -8,6 +8,7 @@ import {
   PreviewPipeline,
   RenderJobManager,
   MeltExecutionCoordinator,
+  MeltBusyError,
   compileProject,
   consumerArguments,
   profileCatalog,
@@ -312,7 +313,12 @@ export class WorkspaceService {
       (candidate) => candidate.id === input.profileId,
     );
     if (profile === undefined || profile.delivery !== 'media') {
-      throw new Error(`Unknown media export profile: ${input.profileId}`);
+      const validProfileIds = BUILTIN_EXPORT_PROFILES.filter(
+        (candidate) => candidate.delivery === 'media',
+      ).map((candidate) => candidate.id);
+      throw new Error(
+        `Unknown media export profile: ${input.profileId}. Valid profile IDs: ${validProfileIds.join(', ')}`,
+      );
     }
     const outputPath = this.#artifactPath(
       handle,
@@ -350,6 +356,7 @@ export class WorkspaceService {
     readonly start: number;
     readonly end?: number;
   }): Promise<RenderJob> {
+    if (this.#jobs.hasActiveExports()) throw new MeltBusyError();
     const handle = this.#handle(input.projectId);
     const project = handle.store.getProject();
     const compiled = await compileProject(project, {
@@ -423,6 +430,7 @@ export class WorkspaceService {
     readonly end?: number;
     readonly frames?: readonly number[];
   }) {
+    if (this.#jobs.hasActiveExports()) throw new MeltBusyError();
     const handle = this.#handle(input.projectId);
     const project = handle.store.getProject();
     if (input.kind === 'waveform') {
@@ -537,7 +545,10 @@ export class WorkspaceService {
       .catch(() => undefined)
       .finally(() => {
         this.#runner = null;
-        if (this.#jobs.list('queued').length > 0) this.#scheduleJobs();
+        if (this.#jobs.hasPendingWork()) {
+          const retry = setTimeout(() => this.#scheduleJobs(), 500);
+          retry.unref();
+        }
       });
   }
 }

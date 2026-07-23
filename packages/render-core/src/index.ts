@@ -14,6 +14,7 @@ export {
   type ExportProfile,
 } from './profiles.js';
 export {
+  MeltBusyError,
   RenderJobManager,
   renderJobRequestSchema,
   type RenderJob,

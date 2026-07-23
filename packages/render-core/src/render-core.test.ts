@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -527,18 +527,220 @@ describe('render jobs', () => {
 
     const database = new DatabaseSync(join(root, 'jobs.sqlite'));
     database
-      .prepare("UPDATE render_jobs SET status='running' WHERE id=?")
+      .prepare(
+        "UPDATE render_jobs SET status='running',owner_id=NULL,attempt_id=NULL,lease_expires_at=NULL WHERE id=?",
+      )
       .run(job.id);
     database.close();
     const reopened = new RenderJobManager(root, {
       executor: new FixtureExecutor(),
     });
+    await reopened.initialize();
+    await reopened.runUntilIdle();
     expect(reopened.get(job.id)).toMatchObject({
-      status: 'queued',
-      error: 'Recovered after process restart',
+      status: 'succeeded',
+      attempts: 1,
     });
-    reopened.cancel(job.id);
     reopened.close();
+  }, 15_000);
+
+  it('atomically claims a shared job exactly once across managers', async () => {
+    const root = resolve('tmp', `render-shared-${crypto.randomUUID()}`);
+    roots.push(root);
+    const executor = new FixtureExecutor();
+    const first = new RenderJobManager(root, {
+      executor,
+      ownerId: 'first',
+    });
+    const second = new RenderJobManager(root, {
+      executor,
+      ownerId: 'second',
+    });
+    await Promise.all([first.initialize(), second.initialize()]);
+    const output = join(root, 'shared.mkv');
+    const job = first.submit({
+      kind: 'export',
+      xml: '<mlt/>',
+      durationFrames: 1,
+      outputPath: output,
+      consumerArguments: [`avformat:${output}`],
+      maxAttempts: 1,
+    });
+
+    await Promise.all([first.runUntilIdle(), second.runUntilIdle()]);
+
+    expect(first.get(job.id)).toMatchObject({
+      status: 'succeeded',
+      attempts: 1,
+    });
+    expect(executor.calls).toBe(1);
+    first.close();
+    second.close();
+  });
+
+  it('does not re-enter an active dispatcher lease', async () => {
+    const root = resolve('tmp', `render-reentrant-${crypto.randomUUID()}`);
+    roots.push(root);
+    const executor = new FixtureExecutor();
+    const manager = new RenderJobManager(root, { executor });
+    await manager.initialize();
+    for (const name of ['first', 'second']) {
+      const output = join(root, `${name}.mkv`);
+      manager.submit({
+        kind: 'export',
+        xml: '<mlt/>',
+        durationFrames: 1,
+        outputPath: output,
+        consumerArguments: [`avformat:${output}`],
+      });
+    }
+
+    await Promise.all([manager.runUntilIdle(), manager.runUntilIdle()]);
+
+    expect(manager.list('succeeded')).toHaveLength(2);
+    expect(executor.maxConcurrentCalls).toBe(1);
+    manager.close();
+  });
+
+  it('executes exports in FIFO order with one attempt each', async () => {
+    const root = resolve('tmp', `render-fifo-${crypto.randomUUID()}`);
+    roots.push(root);
+    const executor = new FixtureExecutor();
+    const manager = new RenderJobManager(root, { executor });
+    await manager.initialize();
+    const outputs = [join(root, 'first.mkv'), join(root, 'second.mkv')];
+    const jobs = outputs.map((output) =>
+      manager.submit({
+        kind: 'export',
+        xml: '<mlt/>',
+        durationFrames: 1,
+        outputPath: output,
+        consumerArguments: [`avformat:${output}`],
+      }),
+    );
+
+    await manager.runUntilIdle();
+
+    expect(
+      executor.argumentLists.map((arguments_) =>
+        arguments_.find((argument) => argument.startsWith('avformat:')),
+      ),
+    ).toEqual(outputs.map((output) => `avformat:${output}`));
+    expect(jobs.map((job) => manager.get(job.id).attempts)).toEqual([1, 1]);
+    manager.close();
+  });
+
+  it('recovers an expired owner and removes only its stale attempt', async () => {
+    const root = resolve('tmp', `render-expired-${crypto.randomUUID()}`);
+    roots.push(root);
+    const manager = new RenderJobManager(root, {
+      executor: new FixtureExecutor(),
+      ownerId: 'replacement',
+    });
+    await manager.initialize();
+    const output = join(root, 'recovered.mkv');
+    const job = manager.submit({
+      kind: 'export',
+      xml: '<mlt/>',
+      durationFrames: 1,
+      outputPath: output,
+      consumerArguments: [`avformat:${output}`],
+      maxAttempts: 1,
+    });
+    const staleAttempt = 'stale-attempt';
+    const staleDirectory = join(root, 'tmp', job.id, staleAttempt);
+    await mkdir(staleDirectory, { recursive: true });
+    await writeFile(join(staleDirectory, 'project.mlt'), '<mlt/>');
+    const database = new DatabaseSync(join(root, 'jobs.sqlite'));
+    database
+      .prepare(
+        `UPDATE render_jobs SET status='running',attempts=1,owner_id='dead',
+          attempt_id=?,lease_expires_at=? WHERE id=?`,
+      )
+      .run(staleAttempt, Date.now() - 1, job.id);
+    database.close();
+
+    await manager.runUntilIdle();
+
+    expect(manager.get(job.id)).toMatchObject({
+      status: 'succeeded',
+      attempts: 1,
+    });
+    await expect(stat(staleDirectory)).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    manager.close();
+  });
+
+  it('does not recover or clean a job owned by a live dispatcher', async () => {
+    const root = resolve('tmp', `render-live-${crypto.randomUUID()}`);
+    roots.push(root);
+    let release: (() => void) | undefined;
+    const executor: CommandExecutor = {
+      async run(_executable, args): Promise<CommandExecution> {
+        await new Promise<void>((resolvePromise) => {
+          release = resolvePromise;
+        });
+        const consumer = args.find((argument) =>
+          argument.startsWith('avformat:'),
+        );
+        if (consumer !== undefined)
+          await writeFile(consumer.slice('avformat:'.length), 'output');
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    };
+    const first = new RenderJobManager(root, {
+      executor,
+      ownerId: 'live-owner',
+      leaseMs: 2_000,
+      heartbeatMs: 100,
+    });
+    await first.initialize();
+    const output = join(root, 'live.mkv');
+    const job = first.submit({
+      kind: 'export',
+      xml: '<mlt/>',
+      durationFrames: 1,
+      outputPath: output,
+      consumerArguments: [`avformat:${output}`],
+    });
+    const running = first.runUntilIdle();
+    for (
+      let index = 0;
+      index < 100 && release === undefined;
+      index += 1
+    )
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 5));
+    expect(release).toBeDefined();
+    expect(first.get(job.id).status).toBe('running');
+
+    const second = new RenderJobManager(root, {
+      executor: new FixtureExecutor(),
+      ownerId: 'observer',
+      leaseMs: 2_000,
+    });
+    await second.initialize();
+    await second.runUntilIdle();
+    expect(second.get(job.id)).toMatchObject({
+      status: 'running',
+      attempts: 1,
+    });
+    const database = new DatabaseSync(join(root, 'jobs.sqlite'));
+    const attempt = database
+      .prepare('SELECT attempt_id FROM render_jobs WHERE id=?')
+      .get(job.id) as { readonly attempt_id: string };
+    database.close();
+    expect(
+      await stat(join(root, 'tmp', job.id, attempt.attempt_id, 'project.mlt')),
+    ).toBeDefined();
+    release?.();
+    await running;
+    expect(first.get(job.id)).toMatchObject({
+      status: 'succeeded',
+      attempts: 1,
+    });
+    first.close();
+    second.close();
   });
 });
 
