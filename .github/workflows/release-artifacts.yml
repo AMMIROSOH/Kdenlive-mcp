@@ -48,13 +48,19 @@ jobs:
           subject-path: |
             artifacts/release/*.zip
             artifacts/release/*.tar.gz
-      - uses: softprops/action-gh-release@v2
+      - name: Upload platform release artifacts
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/release/*.zip
             artifacts/release/*.tar.gz
             artifacts/release/*.sha256
             artifacts/release/*.sigstore.json
+      - name: Upload shared release metadata
+        if: matrix.platform == 'linux'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
             artifacts/release/sbom/*.json
             artifacts/release/sbom/*.sigstore.json
             artifacts/release/licenses/*
