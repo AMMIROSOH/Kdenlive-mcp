@@ -623,10 +623,13 @@ describe('render jobs', () => {
       '00000000-0000-4000-8000-000000000000',
     ];
     const database = new DatabaseSync(join(root, 'jobs.sqlite'));
-    for (const [index, job] of jobs.entries())
+    for (const [index, job] of jobs.entries()) {
+      const orderedId = orderedIds[index];
+      if (orderedId === undefined) throw new Error('Missing FIFO test job ID');
       database
         .prepare('UPDATE render_jobs SET id=?,created_at=? WHERE id=?')
-        .run(orderedIds[index], '2026-01-01T00:00:00.000Z', job.id);
+        .run(orderedId, '2026-01-01T00:00:00.000Z', job.id);
+    }
     database.close();
 
     await manager.runUntilIdle();
