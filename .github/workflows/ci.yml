@@ -64,7 +64,10 @@ jobs:
       - run: pnpm render:acceptance
       - run: pnpm mcp:acceptance
       - run: pnpm package:release -- --platform linux
-      - run: pnpm release:verify -- --path artifacts/release/kdenlive-mcp-1.0.0-linux-x64
+      - shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          pnpm release:verify -- --path "artifacts/release/kdenlive-mcp-${version}-linux-x64"
       - uses: actions/upload-artifact@v4
         with:
           name: render-smoke-linux
@@ -101,7 +104,10 @@ jobs:
       - run: pnpm render:acceptance
       - run: pnpm mcp:acceptance
       - run: pnpm package:release -- --platform windows
-      - run: pnpm release:verify -- --path artifacts/release/kdenlive-mcp-1.0.0-windows-x64
+      - shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          pnpm release:verify -- --path "artifacts/release/kdenlive-mcp-$version-windows-x64"
       - uses: actions/upload-artifact@v4
         with:
           name: render-smoke-windows

@@ -705,11 +705,7 @@ describe('render jobs', () => {
       consumerArguments: [`avformat:${output}`],
     });
     const running = first.runUntilIdle();
-    for (
-      let index = 0;
-      index < 100 && release === undefined;
-      index += 1
-    )
+    for (let index = 0; index < 100 && release === undefined; index += 1)
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 5));
     expect(release).toBeDefined();
     expect(first.get(job.id).status).toBe('running');
