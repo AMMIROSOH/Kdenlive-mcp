@@ -16,11 +16,11 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
         with:
           version: 9.5.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -33,7 +33,7 @@ jobs:
   python:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -46,11 +46,11 @@ jobs:
   render-smoke-linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
         with:
           version: 9.5.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -63,6 +63,8 @@ jobs:
       - run: pnpm spike:render
       - run: pnpm render:acceptance
       - run: pnpm mcp:acceptance
+      - run: pnpm sample:milestone-6
+      - run: melt artifacts/milestone-6-sample/Kdenlive-MCP-Milestone-6.kdenlive -consumer null
       - run: pnpm package:release -- --platform linux
       - shell: bash
         run: |
@@ -76,11 +78,11 @@ jobs:
   render-smoke-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
         with:
           version: 9.5.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
@@ -103,6 +105,9 @@ jobs:
       - run: pnpm spike:render
       - run: pnpm render:acceptance
       - run: pnpm mcp:acceptance
+      - run: pnpm sample:milestone-6
+      - shell: pwsh
+        run: '& $env:MELT_PATH artifacts\milestone-6-sample\Kdenlive-MCP-Milestone-6.kdenlive -consumer null'
       - run: pnpm package:release -- --platform windows
       - shell: pwsh
         run: |

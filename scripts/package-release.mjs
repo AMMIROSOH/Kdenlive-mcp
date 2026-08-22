@@ -148,6 +148,7 @@ for (const path of [
 }
 await cp(join(root, 'docs'), join(stage, 'docs'), { recursive: true });
 await cp(join(root, 'config'), join(stage, 'config'), { recursive: true });
+await cp(join(root, 'examples'), join(stage, 'examples'), { recursive: true });
 try {
   await cp(join(root, 'artifacts', 'licenses'), join(stage, 'licenses'), {
     recursive: true,

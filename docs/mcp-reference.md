@@ -18,20 +18,20 @@ revision, changed IDs, warnings, and an undo token.
 
 ## Timeline
 
-| Tool                                                                  | Purpose                                     |
-| --------------------------------------------------------------------- | ------------------------------------------- |
-| `timeline_query`                                                      | Bounded filtered timeline inspection        |
-| `timeline_add_track`, `timeline_add_clips`                            | Track creation and batched placement        |
-| `timeline_move_clips`, `timeline_remove_clips`, `timeline_split_clip` | Structural gestures                         |
-| `timeline_trim_clip`, `timeline_slip_clip`, `timeline_set_speed`      | Source/timing changes                       |
-| `timeline_ripple_delete`                                              | Normalized batched ripple deletion          |
-| `clip_set_properties`, `clip_set_keyframes`, `clip_set_effects`       | Properties and animation                    |
-| `transition_edit`                                                     | Add/update/remove transitions               |
-| `text_edit`, `caption_edit`, `marker_edit`                            | Add/update/remove timed creative entities   |
-| `caption_export`                                                      | Write SRT or WebVTT under project artifacts |
-| `interchange_export`                                                   | Write editable Kdenlive 26.04.x or OTIO 0.18.1 artifacts |
-| `interchange_import_plan`, `interchange_import_apply`, `interchange_import_discard` | Reviewed atomic interchange imports |
-| `timeline_diagnostics_submit`                                          | Submit advisory durable timeline diagnostics |
+| Tool                                                                                | Purpose                                                  |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `timeline_query`                                                                    | Bounded filtered timeline inspection                     |
+| `timeline_add_track`, `timeline_add_clips`                                          | Track creation and batched placement                     |
+| `timeline_move_clips`, `timeline_remove_clips`, `timeline_split_clip`               | Structural gestures                                      |
+| `timeline_trim_clip`, `timeline_slip_clip`, `timeline_set_speed`                    | Source/timing changes                                    |
+| `timeline_ripple_delete`                                                            | Normalized batched ripple deletion                       |
+| `clip_set_properties`, `clip_set_keyframes`, `clip_set_effects`                     | Properties and animation                                 |
+| `transition_edit`                                                                   | Add/update/remove transitions                            |
+| `text_edit`, `caption_edit`, `marker_edit`                                          | Add/update/remove timed creative entities                |
+| `caption_export`                                                                    | Write SRT or WebVTT under project artifacts              |
+| `interchange_export`                                                                | Write editable Kdenlive 26.04.x or OTIO 0.18.1 artifacts |
+| `interchange_import_plan`, `interchange_import_apply`, `interchange_import_discard` | Reviewed atomic interchange imports                      |
+| `timeline_diagnostics_submit`                                                       | Submit advisory durable timeline diagnostics             |
 
 ## Rendering and jobs
 
@@ -48,18 +48,18 @@ limited to 32 MiB per resource read. Larger export paths remain in the job resul
 
 ## Resources
 
-| URI                                       | Content                            |
-| ----------------------------------------- | ---------------------------------- |
-| `kdenlive://instructions`                 | Agent frame/revision/editing rules |
-| `kdenlive://profiles`                     | Validated export profile catalog   |
-| `kdenlive://capabilities`                 | Installed runtime snapshot         |
-| `kdenlive://projects/{projectId}/summary` | Compact project/timeline summary   |
-| `kdenlive://artifacts/{jobId}`            | Owned bounded artifact             |
-| `kdenlive://interchange/artifacts/{artifactId}` | Owned Kdenlive/OTIO artifact |
-| `kdenlive://interchange/plans/{planId}`   | Reviewed import plan                |
-| `kdenlive://recipes`                      | Versioned recipe catalog            |
-| `kdenlive://recipes/{recipeId}`           | Individual editing recipe           |
-| `kdenlive://timeline-diagnostics/{jobId}` | Advisory diagnostic report          |
+| URI                                             | Content                            |
+| ----------------------------------------------- | ---------------------------------- |
+| `kdenlive://instructions`                       | Agent frame/revision/editing rules |
+| `kdenlive://profiles`                           | Validated export profile catalog   |
+| `kdenlive://capabilities`                       | Installed runtime snapshot         |
+| `kdenlive://projects/{projectId}/summary`       | Compact project/timeline summary   |
+| `kdenlive://artifacts/{jobId}`                  | Owned bounded artifact             |
+| `kdenlive://interchange/artifacts/{artifactId}` | Owned Kdenlive/OTIO artifact       |
+| `kdenlive://interchange/plans/{planId}`         | Reviewed import plan               |
+| `kdenlive://recipes`                            | Versioned recipe catalog           |
+| `kdenlive://recipes/{recipeId}`                 | Individual editing recipe          |
+| `kdenlive://timeline-diagnostics/{jobId}`       | Advisory diagnostic report         |
 
 ## Error codes
 

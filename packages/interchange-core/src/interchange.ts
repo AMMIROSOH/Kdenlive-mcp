@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import {
   clipDuration,
   createProject,
-  newId,
   projectSchema,
   type Project,
 } from '@kdenlive-mcp/project-core';
@@ -35,11 +34,13 @@ export interface InterchangeParse {
 }
 
 const MAX_INPUT_BYTES = 16 * 1024 * 1024;
-const provenanceSchema = z.object({
-  project: projectSchema,
-  exportedAt: z.string(),
-  target: z.string(),
-}).strict();
+const provenanceSchema = z
+  .object({
+    project: projectSchema,
+    exportedAt: z.string(),
+    target: z.string(),
+  })
+  .strict();
 
 function escapeXml(value: string): string {
   return value
@@ -60,29 +61,36 @@ function unescapeXml(value: string): string {
 }
 
 function encodedProject(project: Project, target: string): string {
-  return Buffer.from(JSON.stringify({ project, exportedAt: project.updatedAt, target }))
-    .toString('base64');
+  return Buffer.from(
+    JSON.stringify({ project, exportedAt: project.updatedAt, target }),
+  ).toString('base64');
 }
 
-function fidelityFor(project: Project, format: InterchangeFormat): FidelityIssue[] {
+function fidelityFor(
+  project: Project,
+  format: InterchangeFormat,
+): FidelityIssue[] {
   if (format === 'kdenlive') return [];
   const issues: FidelityIssue[] = [];
   for (const item of [...project.texts, ...project.captions]) {
     issues.push({
       code: 'OTIO_METADATA_ONLY',
       severity: 'warning',
-      message: 'Text and captions are retained in kdenlive_mcp metadata; other OTIO applications may ignore them.',
+      message:
+        'Text and captions are retained in kdenlive_mcp metadata; other OTIO applications may ignore them.',
       entityId: item.id,
     });
   }
-  for (const track of project.tracks) for (const clip of track.clips) {
-    if (clip.effects.length > 0) issues.push({
-      code: 'OTIO_EFFECT_METADATA_ONLY',
-      severity: 'warning',
-      message: 'Clip effects are retained in kdenlive_mcp metadata.',
-      entityId: clip.id,
-    });
-  }
+  for (const track of project.tracks)
+    for (const clip of track.clips) {
+      if (clip.effects.length > 0)
+        issues.push({
+          code: 'OTIO_EFFECT_METADATA_ONLY',
+          severity: 'warning',
+          message: 'Clip effects are retained in kdenlive_mcp metadata.',
+          entityId: clip.id,
+        });
+    }
   return issues;
 }
 
@@ -90,174 +98,424 @@ function otioTime(value: number, rate: number) {
   return { OTIO_SCHEMA: 'RationalTime.1', value, rate };
 }
 function otioRange(start: number, duration: number, rate: number) {
-  return { OTIO_SCHEMA: 'TimeRange.1', start_time: otioTime(start, rate), duration: otioTime(duration, rate) };
+  return {
+    OTIO_SCHEMA: 'TimeRange.1',
+    start_time: otioTime(start, rate),
+    duration: otioTime(duration, rate),
+  };
 }
 
 function exportOtio(project: Project): string {
-  const rate = project.settings.fps.numerator / project.settings.fps.denominator;
+  const rate =
+    project.settings.fps.numerator / project.settings.fps.denominator;
   const tracks = project.tracks.map((track) => {
     let cursor = 0;
     const children: unknown[] = [];
-    for (const clip of [...track.clips].sort((a, b) => a.timelineStart - b.timelineStart || a.id.localeCompare(b.id))) {
-      if (clip.timelineStart > cursor) children.push({
-        OTIO_SCHEMA: 'Gap.1', name: 'Gap', metadata: {}, effects: [], markers: [], enabled: true,
-        source_range: otioRange(0, clip.timelineStart - cursor, rate),
-      });
+    for (const clip of [...track.clips].sort(
+      (a, b) => a.timelineStart - b.timelineStart || a.id.localeCompare(b.id),
+    )) {
+      if (clip.timelineStart > cursor)
+        children.push({
+          OTIO_SCHEMA: 'Gap.1',
+          name: 'Gap',
+          metadata: {},
+          effects: [],
+          markers: [],
+          enabled: true,
+          source_range: otioRange(0, clip.timelineStart - cursor, rate),
+        });
       const duration = clipDuration(clip);
       const asset = project.assets.find((item) => item.id === clip.assetId);
       children.push({
-        OTIO_SCHEMA: 'Clip.2', name: clip.name, metadata: { kdenlive_mcp: { id: clip.id, assetId: clip.assetId, clip } },
-        effects: [], markers: [], enabled: true,
-        media_reference: {
-          OTIO_SCHEMA: 'ExternalReference.1', name: asset?.name ?? clip.name, metadata: { kdenlive_mcp: { asset } },
-          target_url: asset?.location.path ?? '', available_range: asset?.probe.durationFrames === null || asset === undefined ? null : otioRange(0, asset.probe.durationFrames, rate),
+        OTIO_SCHEMA: 'Clip.2',
+        name: clip.name,
+        metadata: {
+          kdenlive_mcp: { id: clip.id, assetId: clip.assetId, clip },
         },
-        source_range: otioRange(clip.sourceIn, clip.sourceOut - clip.sourceIn, rate),
+        effects: [],
+        markers: [],
+        enabled: true,
+        media_reference: {
+          OTIO_SCHEMA: 'ExternalReference.1',
+          name: asset?.name ?? clip.name,
+          metadata: { kdenlive_mcp: { asset } },
+          target_url: asset?.location.path ?? '',
+          available_range:
+            asset?.probe.durationFrames === null || asset === undefined
+              ? null
+              : otioRange(0, asset.probe.durationFrames, rate),
+        },
+        source_range: otioRange(
+          clip.sourceIn,
+          clip.sourceOut - clip.sourceIn,
+          rate,
+        ),
       });
       cursor = clip.timelineStart + duration;
     }
-    return { OTIO_SCHEMA: 'Track.1', name: track.name, metadata: { kdenlive_mcp: { id: track.id, kind: track.kind, locked: track.locked, syncLocked: track.syncLocked, muted: track.muted, hidden: track.hidden } }, effects: [], markers: [], enabled: !track.muted, kind: track.kind === 'video' ? 'Video' : 'Audio', source_range: null, children };
+    return {
+      OTIO_SCHEMA: 'Track.1',
+      name: track.name,
+      metadata: {
+        kdenlive_mcp: {
+          id: track.id,
+          kind: track.kind,
+          locked: track.locked,
+          syncLocked: track.syncLocked,
+          muted: track.muted,
+          hidden: track.hidden,
+        },
+      },
+      effects: [],
+      markers: [],
+      enabled: !track.muted,
+      kind: track.kind === 'video' ? 'Video' : 'Audio',
+      source_range: null,
+      children,
+    };
   });
-  return `${JSON.stringify({
-    OTIO_SCHEMA: 'Timeline.1', name: project.name,
-    metadata: { kdenlive_mcp: { encoded_project: encodedProject(project, 'otio-0.18.1'), projectId: project.id, revision: project.revision, schemaVersion: project.schemaVersion } },
-    tracks: { OTIO_SCHEMA: 'Stack.1', name: 'tracks', metadata: { kdenlive_mcp: { settings: project.settings, transitions: project.transitions, texts: project.texts, captions: project.captions, markers: project.markers } }, effects: [], markers: [], enabled: true, source_range: null, children: tracks },
-  }, null, 2)}\n`;
+  return `${JSON.stringify(
+    {
+      OTIO_SCHEMA: 'Timeline.1',
+      name: project.name,
+      metadata: {
+        kdenlive_mcp: {
+          encoded_project: encodedProject(project, 'otio-0.18.1'),
+          projectId: project.id,
+          revision: project.revision,
+          schemaVersion: project.schemaVersion,
+        },
+      },
+      tracks: {
+        OTIO_SCHEMA: 'Stack.1',
+        name: 'tracks',
+        metadata: {
+          kdenlive_mcp: {
+            settings: project.settings,
+            transitions: project.transitions,
+            texts: project.texts,
+            captions: project.captions,
+            markers: project.markers,
+          },
+        },
+        effects: [],
+        markers: [],
+        enabled: true,
+        source_range: null,
+        children: tracks,
+      },
+    },
+    null,
+    2,
+  )}\n`;
 }
 
 function exportKdenlive(project: Project): string {
-  if (project.assets.length === 0 && project.tracks.length === 0) {
-    const sequenceId = `{${project.id}}`;
-    const encoded = encodedProject(project, 'kdenlive-26.04');
+  const duration = Math.max(
+    1,
+    ...project.tracks.flatMap((track) =>
+      track.clips.map((clip) => clip.timelineStart + clipDuration(clip)),
+    ),
+  );
+  const sequenceId = `{${project.id}}`;
+  const documentId = BigInt(
+    `0x${createHash('sha256').update(project.id).digest('hex').slice(0, 13)}`,
+  ).toString();
+  const sequenceHash = createHash('sha256')
+    .update(`${project.id}\0${String(project.revision)}`)
+    .digest('hex')
+    .slice(0, 32);
+  const encoded = encodedProject(project, 'kdenlive-26.04');
+  const fps = project.settings.fps;
+  const defaultVideoTrack = project.tracks.length === 0;
+  const tracks = defaultVideoTrack
+    ? [
+        {
+          id: 'default-video-track',
+          name: 'Video 1',
+          kind: 'video' as const,
+          clips: [],
+          locked: false,
+          muted: false,
+          hidden: false,
+        },
+      ]
+    : project.tracks;
+  const assetIds = new Map(
+    project.assets.map((asset, index) => [
+      asset.id,
+      { producer: `producer${String(index)}`, binId: index + 2 },
+    ]),
+  );
+  const producerLines = project.assets.flatMap((asset, index) => {
+    const durationFrames = Math.max(1, asset.probe.durationFrames ?? duration);
     return [
-      '<?xml version="1.0" encoding="utf-8"?>',
-      `<mlt LC_NUMERIC="C" version="7.39.0" producer="main_bin">`,
-      `  <profile description="${escapeXml(project.name)}" width="${String(project.settings.width)}" height="${String(project.settings.height)}" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="${String(project.settings.width)}" display_aspect_den="${String(project.settings.height)}" frame_rate_num="${String(project.settings.fps.numerator)}" frame_rate_den="${String(project.settings.fps.denominator)}" colorspace="709"/>`,
-      '  <producer id="black_track" in="0" out="0">',
-      '    <property name="length">2147483647</property>',
-      '    <property name="eof">continue</property>',
-      '    <property name="resource">black</property>',
-      '    <property name="mlt_service">color</property>',
-      '    <property name="mlt_image_format">rgba</property>',
+      `  <producer id="producer${String(index)}" in="0" out="${String(durationFrames - 1)}">`,
+      '    <property name="mlt_service">avformat-novalidate</property>',
+      `    <property name="resource">${escapeXml(asset.location.path)}</property>`,
+      `    <property name="length">${String(durationFrames)}</property>`,
+      `    <property name="kdenlive:clipname">${escapeXml(asset.name)}</property>`,
+      `    <property name="kdenlive:id">${String(index + 2)}</property>`,
+      `    <property name="kdenlive_mcp.asset">${escapeXml(Buffer.from(JSON.stringify(asset)).toString('base64'))}</property>`,
       '  </producer>',
-      '  <playlist id="playlist0"/>',
-      '  <tractor id="tractor0" in="0" out="0">',
-      '    <property name="kdenlive:track_name">Video 1</property>',
+    ];
+  });
+  const timelineLines: string[] = [];
+  tracks.forEach((track, trackIndex) => {
+    const firstPlaylist = trackIndex * 2;
+    const secondPlaylist = firstPlaylist + 1;
+    const hide = track.kind === 'video' ? 'audio' : 'video';
+    timelineLines.push(`  <playlist id="playlist${String(firstPlaylist)}">`);
+    if (track.kind === 'audio')
+      timelineLines.push(
+        '    <property name="kdenlive:audio_track">1</property>',
+      );
+    if (!defaultVideoTrack)
+      timelineLines.push(
+        `    <property name="kdenlive_mcp.track">${escapeXml(Buffer.from(JSON.stringify(track)).toString('base64'))}</property>`,
+      );
+    let cursor = 0;
+    for (const clip of [...track.clips].sort(
+      (a, b) => a.timelineStart - b.timelineStart || a.id.localeCompare(b.id),
+    )) {
+      if (clip.timelineStart > cursor)
+        timelineLines.push(
+          `    <blank length="${String(clip.timelineStart - cursor)}"/>`,
+        );
+      const asset = assetIds.get(clip.assetId);
+      if (asset === undefined) continue;
+      timelineLines.push(
+        `    <entry producer="${asset.producer}" in="${String(clip.sourceIn)}" out="${String(clip.sourceOut - 1)}">`,
+        `      <property name="kdenlive:id">${String(asset.binId)}</property>`,
+        `      <property name="kdenlive_mcp.clip">${escapeXml(Buffer.from(JSON.stringify(clip)).toString('base64'))}</property>`,
+        '    </entry>',
+      );
+      cursor = clip.timelineStart + clipDuration(clip);
+    }
+    timelineLines.push('  </playlist>');
+    timelineLines.push(
+      `  <playlist id="playlist${String(secondPlaylist)}"${track.kind === 'audio' ? '><property name="kdenlive:audio_track">1</property></playlist>' : '/>'}`,
+    );
+    timelineLines.push(
+      `  <tractor id="tractor${String(trackIndex)}" in="0" out="${String(duration - 1)}">`,
+      `    <property name="kdenlive:track_name">${escapeXml(track.name)}</property>`,
+      ...(track.kind === 'audio'
+        ? ['    <property name="kdenlive:audio_track">1</property>']
+        : []),
+      '    <property name="kdenlive:trackheight">67</property>',
       '    <property name="kdenlive:timeline_active">1</property>',
-      '    <track hide="audio" producer="playlist0"/>',
+      '    <property name="kdenlive:collapsed">0</property>',
+      ...(track.locked
+        ? ['    <property name="kdenlive:locked_track">1</property>']
+        : []),
+      `    <track hide="${hide}" producer="playlist${String(firstPlaylist)}"/>`,
+      `    <track hide="${hide}" producer="playlist${String(secondPlaylist)}"/>`,
       '  </tractor>',
-      `  <tractor id="${escapeXml(sequenceId)}" in="0" out="0">`,
-      `    <property name="kdenlive:uuid">${escapeXml(sequenceId)}</property>`,
-      `    <property name="kdenlive:clipname">${escapeXml(project.name)}</property>`,
-      '    <property name="kdenlive:sequenceproperties.hasAudio">0</property>',
-      '    <property name="kdenlive:sequenceproperties.hasVideo">1</property>',
-      '    <property name="kdenlive:sequenceproperties.tracksCount">1</property>',
-      `    <property name="kdenlive:sequenceproperties.documentuuid">${escapeXml(sequenceId)}</property>`,
-      '    <property name="kdenlive:producer_type">17</property>',
-      '    <property name="kdenlive:clip_type">0</property>',
-      '    <property name="kdenlive:id">1</property>',
-      '    <track producer="black_track"/>',
-      '    <track producer="tractor0"/>',
-      '    <transition id="transition0">',
+    );
+  });
+  const hasAudio = tracks.some((track) => track.kind === 'audio');
+  const hasVideo = tracks.some((track) => track.kind === 'video');
+  const sequenceLines = [
+    `  <tractor id="${escapeXml(sequenceId)}" in="0" out="${String(duration - 1)}">`,
+    `    <property name="kdenlive:uuid">${escapeXml(sequenceId)}</property>`,
+    `    <property name="kdenlive:clipname">${escapeXml(project.name)}</property>`,
+    `    <property name="kdenlive:sequenceproperties.hasAudio">${hasAudio ? '1' : '0'}</property>`,
+    `    <property name="kdenlive:sequenceproperties.hasVideo">${hasVideo ? '1' : '0'}</property>`,
+    '    <property name="kdenlive:sequenceproperties.activeTrack">0</property>',
+    `    <property name="kdenlive:sequenceproperties.tracksCount">${String(tracks.length)}</property>`,
+    `    <property name="kdenlive:sequenceproperties.documentuuid">${escapeXml(sequenceId)}</property>`,
+    `    <property name="kdenlive:duration">${String(duration)}</property>`,
+    `    <property name="kdenlive:maxduration">${String(duration)}</property>`,
+    '    <property name="kdenlive:producer_type">17</property>',
+    '    <property name="kdenlive:id">1</property>',
+    '    <property name="kdenlive:clip_type">0</property>',
+    `    <property name="kdenlive:file_hash">${sequenceHash}</property>`,
+    '    <property name="kdenlive:folderid">1</property>',
+    '    <property name="kdenlive:sequenceproperties.groups">[]</property>',
+    '    <track producer="black_track"/>',
+    ...tracks.map(
+      (_, index) => `    <track producer="tractor${String(index)}"/>`,
+    ),
+  ];
+  tracks.forEach((track, index) => {
+    const service = track.kind === 'video' ? 'qtblend' : 'mix';
+    sequenceLines.push(
+      `    <transition id="transition${String(index)}">`,
       '      <property name="a_track">0</property>',
-      '      <property name="b_track">1</property>',
-      '      <property name="mlt_service">qtblend</property>',
-      '      <property name="kdenlive_id">qtblend</property>',
+      `      <property name="b_track">${String(index + 1)}</property>`,
+      `      <property name="mlt_service">${service}</property>`,
+      ...(track.kind === 'audio'
+        ? [
+            '      <property name="sum">1</property>',
+            '      <property name="accepts_blanks">1</property>',
+          ]
+        : []),
       '      <property name="internal_added">237</property>',
       '      <property name="always_active">1</property>',
       '    </transition>',
-      '  </tractor>',
-      '  <playlist id="main_bin">',
-      '    <property name="kdenlive:folder.-1.1">Sequences</property>',
-      '    <property name="kdenlive:sequenceFolder">1</property>',
-      '    <property name="kdenlive:docproperties.audioChannels">2</property>',
-      '    <property name="kdenlive:docproperties.compositing">1</property>',
-      `    <property name="kdenlive:docproperties.documentid">${escapeXml(project.id)}</property>`,
-      '    <property name="kdenlive:docproperties.enableproxy">0</property>',
-      `    <property name="kdenlive:docproperties.kdenliveversion">26.04.2</property>`,
-      `    <property name="kdenlive:docproperties.profile">${String(project.settings.width)}x${String(project.settings.height)}@${String(project.settings.fps.numerator)}/${String(project.settings.fps.denominator)}</property>`,
-      `    <property name="kdenlive:docproperties.uuid">${escapeXml(sequenceId)}</property>`,
-      '    <property name="kdenlive:docproperties.version">1.1</property>',
-      `    <property name="kdenlive:docproperties.opensequences">${escapeXml(sequenceId)}</property>`,
-      `    <property name="kdenlive:docproperties.activetimeline">${escapeXml(sequenceId)}</property>`,
-      '    <property name="xml_retain">1</property>',
-      `    <property name="kdenlive_mcp.project">${escapeXml(encoded)}</property>`,
-      `    <entry producer="${escapeXml(sequenceId)}" in="0" out="0"/>`,
-      '  </playlist>',
-      '</mlt>',
-      '',
-    ].join('\n');
-  }
-  const duration = Math.max(1, ...project.tracks.flatMap((track) => track.clips.map((clip) => clip.timelineStart + clipDuration(clip))));
-  const producers = project.assets.map((asset) => [
-    `  <producer id="asset-${escapeXml(asset.id)}">`,
-    `    <property name="mlt_service">avformat</property>`,
-    `    <property name="resource">${escapeXml(asset.location.path)}</property>`,
-    `    <property name="kdenlive:clipname">${escapeXml(asset.name)}</property>`,
-    `    <property name="kdenlive_mcp.asset">${escapeXml(Buffer.from(JSON.stringify(asset)).toString('base64'))}</property>`,
-    '  </producer>',
-  ]);
-  const playlists = project.tracks.map((track) => {
-    const lines = [`  <playlist id="track-${escapeXml(track.id)}">`, `    <property name="kdenlive:track_name">${escapeXml(track.name)}</property>`, `    <property name="kdenlive_mcp.track">${escapeXml(Buffer.from(JSON.stringify(track)).toString('base64'))}</property>`];
-    let cursor = 0;
-    for (const clip of [...track.clips].sort((a, b) => a.timelineStart - b.timelineStart || a.id.localeCompare(b.id))) {
-      if (clip.timelineStart > cursor) lines.push(`    <blank length="${String(clip.timelineStart - cursor)}"/>`);
-      lines.push(`    <entry producer="asset-${escapeXml(clip.assetId)}" in="${String(clip.sourceIn)}" out="${String(clip.sourceOut - 1)}"><property name="kdenlive_mcp.clip">${escapeXml(Buffer.from(JSON.stringify(clip)).toString('base64'))}</property></entry>`);
-      cursor = clip.timelineStart + clipDuration(clip);
-    }
-    lines.push('  </playlist>');
-    return lines;
+    );
   });
-  const encoded = encodedProject(project, 'kdenlive-26.04');
+  sequenceLines.push('  </tractor>');
+  const profileId =
+    project.settings.width === 1920 &&
+    project.settings.height === 1080 &&
+    fps.denominator === 1
+      ? `atsc_1080p_${String(fps.numerator)}`
+      : '';
   return [
     '<?xml version="1.0" encoding="utf-8"?>',
-    '<mlt LC_NUMERIC="C" version="7.39.0">',
-    `  <profile description="${escapeXml(project.name)}" width="${String(project.settings.width)}" height="${String(project.settings.height)}" progressive="1" frame_rate_num="${String(project.settings.fps.numerator)}" frame_rate_den="${String(project.settings.fps.denominator)}"/>`,
-    ...producers.flat(), ...playlists.flat(),
-    `  <tractor id="main" in="0" out="${String(duration - 1)}">`,
+    '<mlt LC_NUMERIC="C" version="7.40.0" producer="main_bin">',
+    `  <profile description="${escapeXml(project.name)}" width="${String(project.settings.width)}" height="${String(project.settings.height)}" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="${String(project.settings.width)}" display_aspect_den="${String(project.settings.height)}" frame_rate_num="${String(fps.numerator)}" frame_rate_den="${String(fps.denominator)}" colorspace="709"/>`,
+    ...producerLines,
+    `  <producer id="black_track" in="0" out="${String(duration - 1)}">`,
+    '    <property name="length">2147483647</property>',
+    '    <property name="eof">continue</property>',
+    '    <property name="resource">black</property>',
+    '    <property name="mlt_service">color</property>',
+    '    <property name="mlt_image_format">rgba</property>',
+    '  </producer>',
+    ...timelineLines,
+    ...sequenceLines,
+    '  <playlist id="main_bin">',
+    '    <property name="kdenlive:folder.-1.1">Sequences</property>',
+    '    <property name="kdenlive:sequenceFolder">1</property>',
+    '    <property name="kdenlive:docproperties.audioChannels">2</property>',
+    '    <property name="kdenlive:docproperties.compositing">1</property>',
+    `    <property name="kdenlive:docproperties.documentid">${documentId}</property>`,
+    '    <property name="kdenlive:docproperties.enableTimelineZone">0</property>',
+    '    <property name="kdenlive:docproperties.enableproxy">0</property>',
+    '    <property name="kdenlive:docproperties.generateproxy">0</property>',
+    '    <property name="kdenlive:docproperties.kdenliveversion">26.04.2</property>',
+    ...(profileId === ''
+      ? []
+      : [
+          `    <property name="kdenlive:docproperties.profile">${profileId}</property>`,
+        ]),
+    `    <property name="kdenlive:docproperties.uuid">${escapeXml(sequenceId)}</property>`,
     '    <property name="kdenlive:docproperties.version">1.1</property>',
-    `    <property name="kdenlive:docproperties.documentid">${escapeXml(project.id)}</property>`,
+    '    <property name="kdenlive:docproperties.patchversion">1</property>',
+    `    <property name="kdenlive:docproperties.opensequences">${escapeXml(sequenceId)}</property>`,
+    `    <property name="kdenlive:docproperties.activetimeline">${escapeXml(sequenceId)}</property>`,
+    '    <property name="xml_retain">1</property>',
     `    <property name="kdenlive_mcp.project">${escapeXml(encoded)}</property>`,
-    ...project.tracks.map((track) => `    <track producer="track-${escapeXml(track.id)}"/>`),
-    '  </tractor>', '</mlt>', '',
+    ...project.assets.flatMap((asset) => {
+      const ref = assetIds.get(asset.id);
+      if (ref === undefined) return [];
+      const assetDuration = Math.max(1, asset.probe.durationFrames ?? duration);
+      return [
+        `    <entry producer="${ref.producer}" in="0" out="${String(assetDuration - 1)}"/>`,
+      ];
+    }),
+    `    <entry producer="${escapeXml(sequenceId)}" in="0" out="${String(duration - 1)}"/>`,
+    '  </playlist>',
+    `  <tractor id="project_tractor" in="0" out="${String(duration - 1)}">`,
+    '    <property name="kdenlive:projectTractor">1</property>',
+    `    <track producer="${escapeXml(sequenceId)}" in="0" out="${String(duration - 1)}"/>`,
+    '  </tractor>',
+    '</mlt>',
+    '',
   ].join('\n');
 }
 
-function decodeEmbedded(value: string, format: InterchangeFormat): InterchangeParse | null {
+function decodeEmbedded(
+  value: string,
+  format: InterchangeFormat,
+): InterchangeParse | null {
   try {
-    const decoded = JSON.parse(Buffer.from(value, 'base64').toString('utf8')) as unknown;
+    const decoded = JSON.parse(
+      Buffer.from(value, 'base64').toString('utf8'),
+    ) as unknown;
     const parsed = provenanceSchema.parse(decoded);
-    return { format, project: parsed.project, provenance: { projectId: parsed.project.id, revision: parsed.project.revision, schemaVersion: parsed.project.schemaVersion }, fidelity: fidelityFor(parsed.project, format) };
-  } catch { return null; }
+    return {
+      format,
+      project: parsed.project,
+      provenance: {
+        projectId: parsed.project.id,
+        revision: parsed.project.revision,
+        schemaVersion: parsed.project.schemaVersion,
+      },
+      fidelity: fidelityFor(parsed.project, format),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseOtio(contents: string): InterchangeParse {
-  const value = JSON.parse(contents) as { metadata?: { kdenlive_mcp?: { encoded_project?: unknown } } };
+  const value = JSON.parse(contents) as {
+    metadata?: { kdenlive_mcp?: { encoded_project?: unknown } };
+  };
   const embedded = value.metadata?.kdenlive_mcp?.encoded_project;
   if (typeof embedded === 'string') {
     const parsed = decodeEmbedded(embedded, 'otio');
     if (parsed !== null) return parsed;
   }
-  const name = typeof (value as { name?: unknown }).name === 'string' ? (value as { name: string }).name : 'Imported OTIO project';
-  return { format: 'otio', project: createProject(name), provenance: { projectId: null, revision: null, schemaVersion: null }, fidelity: [{ code: 'OTIO_FOREIGN_MINIMAL_IMPORT', severity: 'warning', message: 'Foreign OTIO files without MCP metadata currently import as a new empty project; inspect and relink media before editing.' }] };
+  const name =
+    typeof (value as { name?: unknown }).name === 'string'
+      ? (value as { name: string }).name
+      : 'Imported OTIO project';
+  return {
+    format: 'otio',
+    project: createProject(name),
+    provenance: { projectId: null, revision: null, schemaVersion: null },
+    fidelity: [
+      {
+        code: 'OTIO_FOREIGN_MINIMAL_IMPORT',
+        severity: 'warning',
+        message:
+          'Foreign OTIO files without MCP metadata currently import as a new empty project; inspect and relink media before editing.',
+      },
+    ],
+  };
 }
 
 function parseKdenlive(contents: string): InterchangeParse {
-  if (/<!DOCTYPE|<!ENTITY/iu.test(contents)) throw new TypeError('Kdenlive XML must not contain DTDs or entities');
-  const match = /<property\s+name="kdenlive_mcp\.project">([\s\S]*?)<\/property>/u.exec(contents);
+  if (/<!DOCTYPE|<!ENTITY/iu.test(contents))
+    throw new TypeError('Kdenlive XML must not contain DTDs or entities');
+  const match =
+    /<property\s+name="kdenlive_mcp\.project">([\s\S]*?)<\/property>/u.exec(
+      contents,
+    );
   if (match?.[1] !== undefined) {
     const parsed = decodeEmbedded(unescapeXml(match[1]), 'kdenlive');
     if (parsed !== null) return parsed;
   }
-  return { format: 'kdenlive', project: createProject('Imported Kdenlive project'), provenance: { projectId: null, revision: null, schemaVersion: null }, fidelity: [{ code: 'KDENLIVE_FOREIGN_MINIMAL_IMPORT', severity: 'warning', message: 'Foreign Kdenlive files without MCP metadata currently import as a new empty project.' }] };
+  return {
+    format: 'kdenlive',
+    project: createProject('Imported Kdenlive project'),
+    provenance: { projectId: null, revision: null, schemaVersion: null },
+    fidelity: [
+      {
+        code: 'KDENLIVE_FOREIGN_MINIMAL_IMPORT',
+        severity: 'warning',
+        message:
+          'Foreign Kdenlive files without MCP metadata currently import as a new empty project.',
+      },
+    ],
+  };
 }
 
-export function exportInterchange(project: Project, format: InterchangeFormat): InterchangeExport {
-  const contents = format === 'otio' ? exportOtio(project) : exportKdenlive(project);
-  return { format, targetVersion: format === 'otio' ? 'OTIO 0.18.1' : 'Kdenlive 26.04.x / document 1.1', contents, sha256: createHash('sha256').update(contents).digest('hex'), fidelity: fidelityFor(project, format) };
+export function exportInterchange(
+  project: Project,
+  format: InterchangeFormat,
+): InterchangeExport {
+  const contents =
+    format === 'otio' ? exportOtio(project) : exportKdenlive(project);
+  return {
+    format,
+    targetVersion:
+      format === 'otio' ? 'OTIO 0.18.1' : 'Kdenlive 26.04.x / document 1.1',
+    contents,
+    sha256: createHash('sha256').update(contents).digest('hex'),
+    fidelity: fidelityFor(project, format),
+  };
 }
 
-export function parseInterchange(contents: string, format: InterchangeFormat): InterchangeParse {
-  if (Buffer.byteLength(contents, 'utf8') > MAX_INPUT_BYTES) throw new RangeError('Interchange input exceeds 16 MiB');
+export function parseInterchange(
+  contents: string,
+  format: InterchangeFormat,
+): InterchangeParse {
+  if (Buffer.byteLength(contents, 'utf8') > MAX_INPUT_BYTES)
+    throw new RangeError('Interchange input exceeds 16 MiB');
   return format === 'otio' ? parseOtio(contents) : parseKdenlive(contents);
 }
