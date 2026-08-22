@@ -216,6 +216,8 @@ function exportKdenlive(project: Project): string {
     ...project.tracks.flatMap((track) =>
       track.clips.map((clip) => clip.timelineStart + clipDuration(clip)),
     ),
+    ...project.texts.map((text) => text.end),
+    ...project.captions.map((caption) => caption.end),
   );
   const sequenceId = `{${project.id}}`;
   const documentId = BigInt(
@@ -257,6 +259,32 @@ function exportKdenlive(project: Project): string {
       `    <property name="kdenlive:clipname">${escapeXml(asset.name)}</property>`,
       `    <property name="kdenlive:id">${String(index + 2)}</property>`,
       `    <property name="kdenlive_mcp.asset">${escapeXml(Buffer.from(JSON.stringify(asset)).toString('base64'))}</property>`,
+      '  </producer>',
+    ];
+  });
+  const captions = [...project.captions].sort(
+    (a, b) => a.start - b.start || a.id.localeCompare(b.id),
+  );
+  const captionProducerLines = captions.flatMap((caption, index) => {
+    const captionDuration = caption.end - caption.start;
+    const verticalPosition =
+      caption.style.position === 'top'
+        ? '8%'
+        : caption.style.position === 'center'
+          ? '42%'
+          : '80%';
+    return [
+      `  <producer id="caption${String(index)}" in="0" out="${String(captionDuration - 1)}">`,
+      '    <property name="mlt_service">qtext</property>',
+      `    <property name="text">${escapeXml(caption.text)}</property>`,
+      '    <property name="fgcolour">0xffffffff</property>',
+      '    <property name="bgcolour">0x000000a0</property>',
+      '    <property name="family">Sans</property>',
+      `    <property name="size">${String(Math.max(8, Math.round((48 * project.settings.height) / 1080)))}</property>`,
+      `    <property name="geometry">10%/${verticalPosition}:80%x12%:100</property>`,
+      '    <property name="halign">center</property>',
+      '    <property name="valign">middle</property>',
+      `    <property name="kdenlive:clipname">Caption ${String(index + 1)}</property>`,
       '  </producer>',
     ];
   });
@@ -313,8 +341,38 @@ function exportKdenlive(project: Project): string {
       '  </tractor>',
     );
   });
+  const captionTrackIndex = tracks.length;
+  if (captions.length > 0) {
+    const captionPlaylist = `playlist${String(captionTrackIndex * 2)}`;
+    let cursor = 0;
+    timelineLines.push(`  <playlist id="${captionPlaylist}">`);
+    for (const [index, caption] of captions.entries()) {
+      if (caption.start > cursor)
+        timelineLines.push(
+          `    <blank length="${String(caption.start - cursor)}"/>`,
+        );
+      timelineLines.push(
+        `    <entry producer="caption${String(index)}" in="0" out="${String(caption.end - caption.start - 1)}"/>`,
+      );
+      cursor = caption.end;
+    }
+    timelineLines.push('  </playlist>');
+    timelineLines.push(
+      `  <playlist id="playlist${String(captionTrackIndex * 2 + 1)}"/>`,
+      `  <tractor id="tractor${String(captionTrackIndex)}" in="0" out="${String(duration - 1)}">`,
+      '    <property name="kdenlive:track_name">Captions</property>',
+      '    <property name="kdenlive:trackheight">67</property>',
+      '    <property name="kdenlive:timeline_active">1</property>',
+      '    <property name="kdenlive:collapsed">0</property>',
+      `    <track hide="audio" producer="${captionPlaylist}"/>`,
+      `    <track hide="audio" producer="playlist${String(captionTrackIndex * 2 + 1)}"/>`,
+      '  </tractor>',
+    );
+  }
   const hasAudio = tracks.some((track) => track.kind === 'audio');
-  const hasVideo = tracks.some((track) => track.kind === 'video');
+  const hasVideo =
+    tracks.some((track) => track.kind === 'video') || captions.length > 0;
+  const allTrackCount = tracks.length + (captions.length > 0 ? 1 : 0);
   const sequenceLines = [
     `  <tractor id="${escapeXml(sequenceId)}" in="0" out="${String(duration - 1)}">`,
     `    <property name="kdenlive:uuid">${escapeXml(sequenceId)}</property>`,
@@ -322,7 +380,7 @@ function exportKdenlive(project: Project): string {
     `    <property name="kdenlive:sequenceproperties.hasAudio">${hasAudio ? '1' : '0'}</property>`,
     `    <property name="kdenlive:sequenceproperties.hasVideo">${hasVideo ? '1' : '0'}</property>`,
     '    <property name="kdenlive:sequenceproperties.activeTrack">0</property>',
-    `    <property name="kdenlive:sequenceproperties.tracksCount">${String(tracks.length)}</property>`,
+    `    <property name="kdenlive:sequenceproperties.tracksCount">${String(allTrackCount)}</property>`,
     `    <property name="kdenlive:sequenceproperties.documentuuid">${escapeXml(sequenceId)}</property>`,
     `    <property name="kdenlive:duration">${String(duration)}</property>`,
     `    <property name="kdenlive:maxduration">${String(duration)}</property>`,
@@ -336,6 +394,9 @@ function exportKdenlive(project: Project): string {
     ...tracks.map(
       (_, index) => `    <track producer="tractor${String(index)}"/>`,
     ),
+    ...(captions.length > 0
+      ? [`    <track producer="tractor${String(captionTrackIndex)}"/>`]
+      : []),
   ];
   tracks.forEach((track, index) => {
     const service = track.kind === 'video' ? 'qtblend' : 'mix';
@@ -355,6 +416,17 @@ function exportKdenlive(project: Project): string {
       '    </transition>',
     );
   });
+  if (captions.length > 0) {
+    sequenceLines.push(
+      `    <transition id="transition${String(captionTrackIndex)}">`,
+      '      <property name="a_track">0</property>',
+      `      <property name="b_track">${String(captionTrackIndex + 1)}</property>`,
+      '      <property name="mlt_service">qtblend</property>',
+      '      <property name="internal_added">237</property>',
+      '      <property name="always_active">1</property>',
+      '    </transition>',
+    );
+  }
   sequenceLines.push('  </tractor>');
   const profileId =
     project.settings.width === 1920 &&
@@ -367,6 +439,7 @@ function exportKdenlive(project: Project): string {
     '<mlt LC_NUMERIC="C" version="7.40.0" producer="main_bin">',
     `  <profile description="${escapeXml(project.name)}" width="${String(project.settings.width)}" height="${String(project.settings.height)}" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="${String(project.settings.width)}" display_aspect_den="${String(project.settings.height)}" frame_rate_num="${String(fps.numerator)}" frame_rate_den="${String(fps.denominator)}" colorspace="709"/>`,
     ...producerLines,
+    ...captionProducerLines,
     `  <producer id="black_track" in="0" out="${String(duration - 1)}">`,
     '    <property name="length">2147483647</property>',
     '    <property name="eof">continue</property>',

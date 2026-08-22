@@ -11,6 +11,7 @@ import {
   addTexts,
   addTrack,
   addTransition,
+  generateCaptionsFromTranscript,
   exportSrt,
   exportVtt,
   moveClips,
@@ -118,6 +119,13 @@ const captionUpdateItemSchema = z
       .refine((value) => Object.keys(value).length > 0, {
         message: 'At least one caption field is required',
       }),
+  })
+  .strict();
+const transcriptWordSchema = z
+  .object({
+    text: z.string().min(1).max(200),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().positive(),
   })
   .strict();
 const projectSettingsOverridesSchema = z
@@ -732,6 +740,30 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         );
       return await removeCaptions(project, input.ids);
     },
+  );
+  mutation(
+    'caption_generate',
+    'Convert timestamped transcript words into editable captions. The default YouTube layout repeats the prior line above each new line.',
+    {
+      words: z.array(transcriptWordSchema).min(1).max(10_000),
+      layout: z.enum(['standard', 'youtube']).default('youtube'),
+      maxLineCharacters: z.number().int().min(1).max(120).default(28),
+      minGapFrames: z.number().int().min(0).max(300).default(0),
+      maxDurationFrames: z.number().int().min(1).max(3_600).default(180),
+      preset: z.string().min(1).max(100).optional(),
+      position: z.enum(['top', 'center', 'bottom']).default('bottom'),
+      replaceExisting: z.boolean().default(false),
+    },
+    async (project, input) =>
+      await generateCaptionsFromTranscript(project, input.words, {
+        layout: input.layout,
+        maxLineCharacters: input.maxLineCharacters,
+        minGapFrames: input.minGapFrames,
+        maxDurationFrames: input.maxDurationFrames,
+        ...(input.preset === undefined ? {} : { preset: input.preset }),
+        position: input.position,
+        replaceExisting: input.replaceExisting,
+      }),
   );
   timedEdit('marker', addMarkers, updateMarkers, removeMarkers);
 

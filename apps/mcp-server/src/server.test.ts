@@ -279,6 +279,45 @@ describe('Milestone 4 MCP protocol', () => {
     expect(nested.error?.code).toBe('TIMELINE_EDIT_INVALID');
   });
 
+  it('generates editable YouTube-style captions from transcript words', async () => {
+    const { root, client } = await session();
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'generated-captions'), name: 'Captions' },
+      }),
+    );
+    const generated = envelope(
+      await client.callTool({
+        name: 'caption_generate',
+        arguments: {
+          projectId: String(created.data?.id),
+          expectedRevision: 0,
+          maxLineCharacters: 11,
+          words: [
+            { text: 'Hello', start: 0, end: 8 },
+            { text: 'world', start: 9, end: 18 },
+            { text: 'again', start: 30, end: 40 },
+          ],
+        },
+      }),
+    );
+    expect(generated.ok).toBe(true);
+    expect(generated.data?.revision).toBe(1);
+    const timeline = envelope(
+      await client.callTool({
+        name: 'timeline_query',
+        arguments: { projectId: String(created.data?.id) },
+      }),
+    );
+    const captions = (timeline.data as { captions: { text: string }[] })
+      .captions;
+    expect(captions.map((caption) => caption.text)).toEqual([
+      'Hello world',
+      'Hello world\nagain',
+    ]);
+  });
+
   it('returns caption validation diagnostics through the MCP envelope', async () => {
     const { root, client } = await session();
     const created = envelope(

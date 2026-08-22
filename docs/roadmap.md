@@ -344,12 +344,12 @@ over stdio and authenticated loopback HTTP; the security suite passes.
 
 ### 5.5 Caption workflow
 
-- `5.5.a` Convert transcript words into editable caption cues.
-- `5.5.b` Apply line length, duration, gap, reading-speed, and safe-area rules.
-- `5.5.c` Support style presets and per-cue edits.
-- `5.5.d` Import/export SRT and VTT without losing supported timing/text.
-- `5.5.e` Compile burned-in/embedded captions with capability warnings.
-- `5.5.f` Add multilingual/RTL, overlap, Unicode, and round-trip tests.
+- [x] `5.5.a` Convert transcript words into editable caption cues.
+- [x] `5.5.b` Apply line length, duration, gap, reading-speed, and safe-area rules.
+- [x] `5.5.c` Support style presets and per-cue edits.
+- [x] `5.5.d` Import/export SRT and VTT without losing supported timing/text.
+- [x] `5.5.e` Compile burned-in/embedded captions with capability warnings.
+- [x] `5.5.f` Add multilingual/RTL, overlap, Unicode, and round-trip tests.
 
 ### 5.6 Transcript editing
 

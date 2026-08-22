@@ -27,7 +27,7 @@ revision, changed IDs, warnings, and an undo token.
 | `timeline_ripple_delete`                                                            | Normalized batched ripple deletion                       |
 | `clip_set_properties`, `clip_set_keyframes`, `clip_set_effects`                     | Properties and animation                                 |
 | `transition_edit`                                                                   | Add/update/remove transitions                            |
-| `text_edit`, `caption_edit`, `marker_edit`                                          | Add/update/remove timed creative entities                |
+| `text_edit`, `caption_edit`, `caption_generate`, `marker_edit`                      | Add/update/remove or generate timed creative entities    |
 | `caption_export`                                                                    | Write SRT or WebVTT under project artifacts              |
 | `interchange_export`                                                                | Write editable Kdenlive 26.04.x or OTIO 0.18.1 artifacts |
 | `interchange_import_plan`, `interchange_import_apply`, `interchange_import_discard` | Reviewed atomic interchange imports                      |

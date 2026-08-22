@@ -18,6 +18,30 @@ describe('interchange core', () => {
     expect(parseInterchange(otio.contents, 'otio').project).toEqual(project);
   });
 
+  it('writes captions as visible qtext producers on a Kdenlive timeline track', () => {
+    const project = createProject('Captioned', {
+      id: '00000000-0000-4000-8000-000000000001',
+      now: new Date('2026-08-22T00:00:00.000Z'),
+    });
+    project.captions.push({
+      id: '00000000-0000-4000-8000-000000000002',
+      start: 30,
+      end: 90,
+      text: 'Visible caption',
+      style: { preset: 'default', position: 'bottom' },
+    });
+
+    const contents = exportInterchange(project, 'kdenlive').contents;
+    expect(contents).toContain('<property name="mlt_service">qtext</property>');
+    expect(contents).toContain(
+      '<property name="text">Visible caption</property>',
+    );
+    expect(contents).toContain(
+      '<property name="kdenlive:track_name">Captions</property>',
+    );
+    expect(contents).toContain('<entry producer="caption0" in="0" out="59"/>');
+  });
+
   it('rejects XML entity declarations and foreign round-trips', () => {
     expect(() =>
       parseInterchange('<!DOCTYPE x [<!ENTITY x "boom">]><mlt/>', 'kdenlive'),

@@ -134,3 +134,11 @@ export {
   type EffectParameterDefinition,
 } from './effect-catalog.js';
 export { exportSrt, exportVtt, importCaptions } from './caption-io.js';
+export {
+  captionsFromTranscriptWords,
+  generateCaptionsFromTranscript,
+  type CaptionDraft,
+  type CaptionWorkflowOptions,
+  type GenerateCaptionOptions,
+  type TranscriptWord,
+} from './caption-workflow.js';
