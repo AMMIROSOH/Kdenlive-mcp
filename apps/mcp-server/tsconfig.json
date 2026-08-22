@@ -7,6 +7,8 @@
   },
   "include": ["src/**/*.ts"],
   "references": [
+    { "path": "../../packages/interchange-core" },
+    { "path": "../../packages/diagnostics-core" },
     { "path": "../../packages/project-core" },
     { "path": "../../packages/render-core" },
     { "path": "../../packages/runtime-probe" }

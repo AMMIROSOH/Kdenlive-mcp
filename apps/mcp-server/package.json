@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@kdenlive-mcp/project-core": "workspace:*",
+    "@kdenlive-mcp/interchange-core": "workspace:*",
+    "@kdenlive-mcp/diagnostics-core": "workspace:*",
     "@kdenlive-mcp/render-core": "workspace:*",
     "@kdenlive-mcp/runtime-probe": "workspace:*",
     "@modelcontextprotocol/sdk": "1.29.0",

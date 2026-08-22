@@ -119,7 +119,13 @@ await rm(installRoot, { recursive: true, force: true });
 await cp(join(root, 'apps', 'mcp-server', 'dist'), join(stage, 'app', 'dist'), {
   recursive: true,
 });
-for (const name of ['project-core', 'render-core', 'runtime-probe']) {
+for (const name of [
+  'project-core',
+  'render-core',
+  'runtime-probe',
+  'interchange-core',
+  'diagnostics-core',
+]) {
   const target = join(stage, 'app', 'node_modules', '@kdenlive-mcp', name);
   await mkdir(target, { recursive: true });
   await cp(join(root, 'packages', name, 'dist'), join(target, 'dist'), {

@@ -42,6 +42,7 @@ import {
 import { AGENT_INSTRUCTIONS } from './instructions.js';
 import { WorkspaceService } from './workspace.js';
 import { APP_VERSION } from './version.js';
+import { EDITING_RECIPES, recipe } from './recipes.js';
 
 const projectId = z.string().uuid();
 const expectedRevision = z.number().int().nonnegative();
@@ -153,6 +154,10 @@ type ProjectSettingsOverrides = z.infer<typeof projectSettingsOverridesSchema>;
 const mediaExportProfileIds = BUILTIN_EXPORT_PROFILES.filter(
   (profile) => profile.delivery === 'media',
 ).map((profile) => profile.id);
+const interchangePlanSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('roundtrip'), sourcePath: z.string().min(1).max(4096), format: z.enum(['kdenlive', 'otio']), projectId, expectedRevision, relinks: z.array(z.object({ sourcePath: z.string(), replacementPath: z.string() }).strict()).max(100).optional() }).strict(),
+  z.object({ mode: z.literal('new-project'), sourcePath: z.string().min(1).max(4096), format: z.enum(['kdenlive', 'otio']), destinationPath: z.string().min(1).max(4096), destinationName: z.string().min(1).max(200), relinks: z.array(z.object({ sourcePath: z.string(), replacementPath: z.string() }).strict()).max(100).optional() }).strict(),
+]);
 
 function assertMediaExportProfile(profileId: string): void {
   if (mediaExportProfileIds.includes(profileId)) return;
@@ -727,6 +732,63 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
   );
 
   server.registerTool(
+    'interchange_export',
+    {
+      description: 'Export the current canonical project as an editable Kdenlive 26.04.x project or OTIO 0.18.1 timeline.',
+      inputSchema: { projectId, format: z.enum(['kdenlive', 'otio']), outputName: z.string().min(1).max(128) },
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    ({ projectId: id, format, outputName }) => guarded(async () => await workspace.exportInterchange({ projectId: id, format, outputName, clientId })),
+  );
+  server.registerTool(
+    'interchange_import_plan',
+    {
+      description: 'Parse a Kdenlive or OTIO file and create a client-owned reviewed import plan. It does not mutate any project.',
+      inputSchema: interchangePlanSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (input) => guarded(async () => {
+      if (input.mode === 'roundtrip') return await workspace.createInterchangePlan({ clientId, sourcePath: input.sourcePath, format: input.format, mode: input.mode, projectId: input.projectId, expectedRevision: input.expectedRevision });
+      return await workspace.createInterchangePlan({ clientId, sourcePath: input.sourcePath, format: input.format, mode: input.mode, destinationPath: input.destinationPath, destinationName: input.destinationName });
+    }),
+  );
+  server.registerTool(
+    'interchange_import_apply',
+    {
+      description: 'Atomically apply a reviewed interchange plan. Round-trip plans require the original expected revision.',
+      inputSchema: { planId: z.string().uuid(), expectedRevision: expectedRevision.optional(), confirm: z.literal(true) },
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    ({ planId, expectedRevision: revision }) => guarded(async () => await workspace.applyInterchangePlan({ clientId, planId, ...(revision === undefined ? {} : { expectedRevision: revision }) })),
+  );
+  server.registerTool(
+    'interchange_import_discard',
+    {
+      description: 'Discard a client-owned reviewed interchange plan without applying it.',
+      inputSchema: { planId: z.string().uuid() },
+      annotations: { destructiveHint: true, openWorldHint: false },
+    },
+    ({ planId }) => guarded(() => { workspace.discardInterchangePlan(clientId, planId); return { discarded: true }; }),
+  );
+
+  server.registerTool(
+    'timeline_diagnostics_submit',
+    {
+      description: 'Submit a durable advisory timeline diagnostic job. It never mutates the project or blocks export.',
+      inputSchema: {
+        projectId,
+        dialogueTrackIds: z.array(entityId).max(64).optional(),
+        musicTrackIds: z.array(entityId).max(64).optional(),
+        safeMargin: z.number().min(0).max(0.25).optional(),
+        maxCaptionCharactersPerSecond: z.number().min(1).max(80).optional(),
+        shortClipFrames: z.number().int().min(1).max(10_000).optional(),
+      },
+      annotations: { destructiveHint: false, openWorldHint: false },
+    },
+    ({ projectId: id, dialogueTrackIds, musicTrackIds, safeMargin, maxCaptionCharactersPerSecond, shortClipFrames }) => guarded(() => workspace.submitTimelineDiagnostics({ projectId: id, clientId, options: { ...(dialogueTrackIds === undefined ? {} : { dialogueTrackIds }), ...(musicTrackIds === undefined ? {} : { musicTrackIds }), ...(safeMargin === undefined ? {} : { safeMargin }), ...(maxCaptionCharactersPerSecond === undefined ? {} : { maxCaptionCharactersPerSecond }), ...(shortClipFrames === undefined ? {} : { shortClipFrames }) } })),
+  );
+
+  server.registerTool(
     'render_submit',
     {
       description:
@@ -882,6 +944,37 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         },
       ],
     }),
+  );
+  server.registerResource(
+    'editing-recipe-catalog',
+    'kdenlive://recipes',
+    { description: 'Versioned editing recipe catalog', mimeType: 'application/json' },
+    () => ({ contents: [{ uri: 'kdenlive://recipes', mimeType: 'application/json', text: JSON.stringify(EDITING_RECIPES) }] }),
+  );
+  server.registerResource(
+    'editing-recipe',
+    new ResourceTemplate('kdenlive://recipes/{recipeId}', { list: undefined }),
+    { description: 'One versioned editing recipe', mimeType: 'application/json' },
+    (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(recipe(String(variables.recipeId))) }] }),
+  );
+  server.registerResource(
+    'timeline-diagnostic-report',
+    new ResourceTemplate('kdenlive://timeline-diagnostics/{jobId}', { list: undefined }),
+    { description: 'Owned advisory timeline diagnostic report', mimeType: 'application/json' },
+    (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(workspace.timelineDiagnosticReport(clientId, String(variables.jobId))) }] }),
+  );
+
+  server.registerResource(
+    'interchange-plan',
+    new ResourceTemplate('kdenlive://interchange/plans/{planId}', { list: undefined }),
+    { description: 'Client-owned reviewed interchange plan', mimeType: 'application/json' },
+    (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(workspace.interchangePlan(clientId, String(variables.planId))) }] }),
+  );
+  server.registerResource(
+    'interchange-artifact',
+    new ResourceTemplate('kdenlive://interchange/artifacts/{artifactId}', { list: undefined }),
+    { description: 'Owned bounded Kdenlive or OTIO export', mimeType: 'application/octet-stream' },
+    async (uri, variables) => ({ contents: [{ uri: uri.href, mimeType: 'application/octet-stream', blob: (await workspace.readInterchangeArtifact(clientId, String(variables.artifactId))).toString('base64') }] }),
   );
   server.registerResource(
     'agent-instructions',

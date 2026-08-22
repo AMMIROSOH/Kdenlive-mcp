@@ -364,7 +364,7 @@ and propose reviewed transcript edits with cached, source/timeline-mapped result
 
 ## Milestone 6 — Kdenlive interoperability and editing knowledge
 
-**Status: TODO / coming soon. Not included in the public preview.**
+**Status: implemented in the public preview. Kdenlive 26.04.x is the supported interchange target.**
 
 ### 6.1 OTIO export/import
 

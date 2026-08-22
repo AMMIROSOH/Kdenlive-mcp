@@ -1,0 +1,9 @@
+{
+  "name": "@kdenlive-mcp/diagnostics-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./dist/index.js",
+  "scripts": { "build": "tsc -b", "test": "vitest run --root ../.. --config vitest.config.ts packages/diagnostics-core/src" },
+  "dependencies": { "@kdenlive-mcp/project-core": "workspace:*", "zod": "^4.4.3" }
+}

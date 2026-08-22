@@ -4,6 +4,8 @@
     { "path": "packages/runtime-probe" },
     { "path": "packages/mlt-spike" },
     { "path": "packages/project-core" },
+    { "path": "packages/interchange-core" },
+    { "path": "packages/diagnostics-core" },
     { "path": "packages/render-core" },
     { "path": "apps/mcp-server" }
   ]

@@ -17,8 +17,9 @@ packages/runtime-probe ----------+ runtime discovery/capabilities
 `project.json` is the portable canonical project. `state.sqlite` stores revisions,
 history, checkpoints, and probe cache records adjacent to it. Render job SQLite,
 logs, temporary MLT XML, previews, and export files are derived/operational data.
-MLT XML and Kdenlive files are never imported as authoritative state in the current
-release.
+MLT XML and Kdenlive files are never authoritative state. Interchange import creates
+an explicitly reviewed canonical revision (or a new canonical project for foreign
+files), with provenance and fidelity warnings.
 
 Mutations clone the current project, apply one gesture, validate it, atomically
 commit one revision, and write canonical JSON. Callers must supply
@@ -41,5 +42,5 @@ and verification reports.
 ## Deferred layers
 
 The Python analysis worker is a health-only scaffold. It is not connected to the
-MCP server. OTIO and Kdenlive project import/export are not implemented. These are
-Milestones 5 and 6 respectively.
+MCP server. OTIO and Kdenlive interchange are implemented in Node.js; local AI
+analysis remains Milestone 5 work.

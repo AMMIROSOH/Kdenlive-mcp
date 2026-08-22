@@ -5,9 +5,8 @@ a versioned JSON project as the source of truth, applies revision-checked timeli
 edits, compiles deterministic MLT, queues renders, generates previews, and verifies
 outputs using the Kdenlive/MLT and FFmpeg installation already on your computer.
 
-> Public preview: Milestones 0-4 and 7 are implemented. Local AI analysis
-> (Milestone 5) and Kdenlive/OTIO round-trip interoperability (Milestone 6) are
-> planned and clearly marked as unavailable.
+> Public preview: Milestones 0-4, 6, and 7 are implemented. Local AI analysis
+> (Milestone 5) remains planned and unavailable.
 
 ## What works
 
@@ -20,6 +19,8 @@ outputs using the Kdenlive/MLT and FFmpeg installation already on your computer.
 - Output duration, stream, A/V sync, loudness, clipping, black, and freeze checks.
 - MCP over stdio or authenticated loopback Streamable HTTP.
 - Automatic Kdenlive/MLT/FFmpeg discovery and an actionable doctor command.
+- Editable Kdenlive 26.04.x and OTIO 0.18.1 export, plus reviewed import plans.
+- Versioned editing recipes and advisory, durable timeline diagnostics.
 
 ## Quick start
 

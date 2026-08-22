@@ -30,6 +30,19 @@ import {
   type TimelineQueryOptions,
 } from '@kdenlive-mcp/project-core';
 import {
+  buildImportPlan,
+  exportInterchange,
+  parseInterchange,
+  type ImportPlan,
+  type ImportPlanMode,
+  type InterchangeFormat,
+} from '@kdenlive-mcp/interchange-core';
+import {
+  diagnoseTimeline,
+  type DiagnosticOptions,
+  type TimelineDiagnosticReport,
+} from '@kdenlive-mcp/diagnostics-core';
+import {
   SpawnCommandRunner,
   probeCapabilities,
 } from '@kdenlive-mcp/runtime-probe';
@@ -110,6 +123,111 @@ class JobOwnershipStore {
   }
 }
 
+interface StoredInterchangePlan {
+  readonly id: string;
+  readonly clientId: string;
+  readonly projectId: string | null;
+  readonly expectedRevision: number | null;
+  readonly destinationPath: string | null;
+  readonly destinationName: string | null;
+  readonly plan: ImportPlan;
+}
+
+class InterchangeStore {
+  readonly #database: DatabaseSync;
+
+  constructor(path: string) {
+    this.#database = new DatabaseSync(path);
+    this.#database.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
+    this.#database.exec(`
+      CREATE TABLE IF NOT EXISTS interchange_plans(
+        id TEXT PRIMARY KEY, client_id TEXT NOT NULL, project_id TEXT,
+        expected_revision INTEGER, destination_path TEXT, destination_name TEXT,
+        plan_json TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS interchange_artifacts(
+        id TEXT PRIMARY KEY, client_id TEXT NOT NULL, path TEXT NOT NULL,
+        format TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  putPlan(plan: StoredInterchangePlan): void {
+    this.#database.prepare(`INSERT INTO interchange_plans(id,client_id,project_id,expected_revision,destination_path,destination_name,plan_json,created_at) VALUES(?,?,?,?,?,?,?,?)`).run(
+      plan.id, plan.clientId, plan.projectId, plan.expectedRevision, plan.destinationPath,
+      plan.destinationName, JSON.stringify(plan.plan), new Date().toISOString(),
+    );
+  }
+
+  plan(id: string, clientId: string): StoredInterchangePlan {
+    const row = this.#database.prepare('SELECT * FROM interchange_plans WHERE id=?').get(id) as { readonly id: string; readonly client_id: string; readonly project_id: string | null; readonly expected_revision: number | null; readonly destination_path: string | null; readonly destination_name: string | null; readonly plan_json: string } | undefined;
+    if (row === undefined) throw new Error(`Interchange plan not found: ${id}`);
+    if (row.client_id !== clientId) throw new Error('Interchange plan belongs to another client');
+    return { id: row.id, clientId: row.client_id, projectId: row.project_id, expectedRevision: row.expected_revision, destinationPath: row.destination_path, destinationName: row.destination_name, plan: JSON.parse(row.plan_json) as ImportPlan };
+  }
+
+  discard(id: string, clientId: string): void {
+    const result = this.#database.prepare('DELETE FROM interchange_plans WHERE id=? AND client_id=?').run(id, clientId);
+    if (result.changes !== 1) throw new Error(`Interchange plan not found: ${id}`);
+  }
+
+  putArtifact(id: string, clientId: string, path: string, format: InterchangeFormat): void {
+    this.#database.prepare('INSERT INTO interchange_artifacts(id,client_id,path,format,created_at) VALUES(?,?,?,?,?)').run(id, clientId, path, format, new Date().toISOString());
+  }
+
+  artifact(id: string, clientId: string): { readonly path: string; readonly format: InterchangeFormat } {
+    const row = this.#database.prepare('SELECT client_id,path,format FROM interchange_artifacts WHERE id=?').get(id) as { readonly client_id: string; readonly path: string; readonly format: InterchangeFormat } | undefined;
+    if (row === undefined) throw new Error(`Interchange artifact not found: ${id}`);
+    if (row.client_id !== clientId) throw new Error('Interchange artifact belongs to another client');
+    return { path: row.path, format: row.format };
+  }
+
+  close(): void { this.#database.close(); }
+}
+
+export interface TimelineDiagnosticJob {
+  readonly id: string;
+  readonly kind: 'timeline-diagnostic';
+  readonly status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  readonly progress: number;
+  readonly projectId: string;
+  readonly revision: number;
+  readonly reportUri: string;
+  readonly error: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+class TimelineDiagnosticStore {
+  readonly #database: DatabaseSync;
+  constructor(path: string) {
+    this.#database = new DatabaseSync(path);
+    this.#database.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS timeline_diagnostic_jobs(id TEXT PRIMARY KEY,client_id TEXT NOT NULL,project_id TEXT NOT NULL,revision INTEGER NOT NULL,status TEXT NOT NULL,report_json TEXT,error TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);');
+  }
+  submit(clientId: string, project: Project, options: DiagnosticOptions): TimelineDiagnosticJob {
+    const id = randomUUID(); const now = new Date().toISOString();
+    this.#database.prepare('INSERT INTO timeline_diagnostic_jobs(id,client_id,project_id,revision,status,report_json,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').run(id, clientId, project.id, project.revision, 'queued', null, null, now, now);
+    queueMicrotask(() => {
+      try { const report = diagnoseTimeline(project, options); this.#database.prepare('UPDATE timeline_diagnostic_jobs SET status=?,report_json=?,updated_at=? WHERE id=?').run('succeeded', JSON.stringify(report), new Date().toISOString(), id); }
+      catch (cause) { this.#database.prepare('UPDATE timeline_diagnostic_jobs SET status=?,error=?,updated_at=? WHERE id=?').run('failed', cause instanceof Error ? cause.message.slice(0, 2000) : String(cause), new Date().toISOString(), id); }
+    });
+    return this.get(id, clientId);
+  }
+  get(id: string, clientId: string): TimelineDiagnosticJob {
+    const row = this.#database.prepare('SELECT * FROM timeline_diagnostic_jobs WHERE id=?').get(id) as { readonly id: string; readonly client_id: string; readonly project_id: string; readonly revision: number; readonly status: TimelineDiagnosticJob['status']; readonly error: string | null; readonly created_at: string; readonly updated_at: string } | undefined;
+    if (row === undefined) throw new Error(`Timeline diagnostic job not found: ${id}`); if (row.client_id !== clientId) throw new Error('Timeline diagnostic job belongs to another client');
+    return { id: row.id, kind: 'timeline-diagnostic', status: row.status, progress: row.status === 'succeeded' ? 1 : row.status === 'queued' ? 0 : 0.5, projectId: row.project_id, revision: row.revision, reportUri: `kdenlive://timeline-diagnostics/${row.id}`, error: row.error, createdAt: row.created_at, updatedAt: row.updated_at };
+  }
+  has(id: string): boolean { return this.#database.prepare('SELECT 1 FROM timeline_diagnostic_jobs WHERE id=?').get(id) !== undefined; }
+  ids(clientId: string): string[] { return (this.#database.prepare('SELECT id FROM timeline_diagnostic_jobs WHERE client_id=? ORDER BY created_at').all(clientId) as { readonly id: string }[]).map((row) => row.id); }
+  report(id: string, clientId: string): TimelineDiagnosticReport {
+    const row = this.#database.prepare('SELECT client_id,status,report_json FROM timeline_diagnostic_jobs WHERE id=?').get(id) as { readonly client_id: string; readonly status: string; readonly report_json: string | null } | undefined;
+    if (row === undefined) throw new Error(`Timeline diagnostic job not found: ${id}`); if (row.client_id !== clientId) throw new Error('Timeline diagnostic job belongs to another client'); if (row.status !== 'succeeded' || row.report_json === null) throw new Error('Timeline diagnostic report is not ready'); return JSON.parse(row.report_json) as TimelineDiagnosticReport;
+  }
+  cancel(id: string, clientId: string): TimelineDiagnosticJob { this.get(id, clientId); this.#database.prepare("UPDATE timeline_diagnostic_jobs SET status='cancelled',updated_at=? WHERE id=? AND status IN ('queued','running')").run(new Date().toISOString(), id); return this.get(id, clientId); }
+  close(): void { this.#database.close(); }
+}
+
 export interface WorkspaceOptions {
   readonly allowedRoots: readonly string[];
   readonly stateRoot: string;
@@ -124,6 +242,8 @@ export class WorkspaceService {
   readonly #jobs: RenderJobManager;
   readonly #owners: JobOwnershipStore;
   readonly #previews: PreviewPipeline;
+  readonly #interchange: InterchangeStore;
+  readonly #timelineDiagnostics: TimelineDiagnosticStore;
   #runner: Promise<void> | null = null;
   #capabilities: ReturnType<typeof probeCapabilities> | null = null;
 
@@ -140,6 +260,8 @@ export class WorkspaceService {
     this.#owners = new JobOwnershipStore(
       join(this.stateRoot, 'ownership.sqlite'),
     );
+    this.#interchange = new InterchangeStore(join(this.stateRoot, 'interchange.sqlite'));
+    this.#timelineDiagnostics = new TimelineDiagnosticStore(join(this.stateRoot, 'timeline-diagnostics.sqlite'));
     this.#previews = new PreviewPipeline(
       join(this.stateRoot, 'preview-cache'),
       {
@@ -170,6 +292,8 @@ export class WorkspaceService {
     this.#projects.clear();
     this.#jobs.close();
     this.#owners.close();
+    this.#interchange.close();
+    this.#timelineDiagnostics.close();
   }
 
   resolveAllowed(path: string): string {
@@ -449,13 +573,14 @@ export class WorkspaceService {
     );
   }
 
-  job(clientId: string, jobId: string): RenderJob {
+  job(clientId: string, jobId: string): RenderJob | TimelineDiagnosticJob {
+    if (this.#timelineDiagnostics.has(jobId)) return this.#timelineDiagnostics.get(jobId, clientId);
     this.#owners.assert(jobId, clientId);
     return this.#jobs.get(jobId);
   }
 
-  jobs(clientId: string): RenderJob[] {
-    return this.#owners.ids(clientId).map((id) => this.#jobs.get(id));
+  jobs(clientId: string): (RenderJob | TimelineDiagnosticJob)[] {
+    return [...this.#owners.ids(clientId).map((id) => this.#jobs.get(id)), ...this.#timelineDiagnostics.ids(clientId).map((id) => this.#timelineDiagnostics.get(id, clientId))];
   }
 
   diagnostic(clientId: string, jobId: string): unknown {
@@ -463,7 +588,8 @@ export class WorkspaceService {
     return this.#jobs.diagnostic(jobId);
   }
 
-  cancelJob(clientId: string, jobId: string): RenderJob {
+  cancelJob(clientId: string, jobId: string): RenderJob | TimelineDiagnosticJob {
+    if (this.#timelineDiagnostics.has(jobId)) return this.#timelineDiagnostics.cancel(jobId, clientId);
     this.#owners.assert(jobId, clientId);
     return this.#jobs.cancel(jobId);
   }
@@ -515,6 +641,78 @@ export class WorkspaceService {
     await mkdir(join(handle.root, 'artifacts'), { recursive: true });
     await writeFile(path, contents, 'utf8');
     return { path };
+  }
+
+  submitTimelineDiagnostics(input: { readonly projectId: string; readonly clientId: string; readonly options?: DiagnosticOptions }): TimelineDiagnosticJob {
+    return this.#timelineDiagnostics.submit(input.clientId, this.project(input.projectId), input.options ?? {});
+  }
+
+  timelineDiagnosticReport(clientId: string, jobId: string): TimelineDiagnosticReport { return this.#timelineDiagnostics.report(jobId, clientId); }
+
+  async exportInterchange(input: {
+    readonly projectId: string;
+    readonly clientId: string;
+    readonly format: InterchangeFormat;
+    readonly outputName: string;
+  }) {
+    const handle = this.#handle(input.projectId);
+    const exported = exportInterchange(handle.store.getProject(), input.format);
+    const extension = input.format === 'kdenlive' ? '.kdenlive' : '.otio';
+    const path = this.#artifactPath(handle, input.outputName, extension);
+    await mkdir(join(handle.root, 'artifacts'), { recursive: true });
+    await writeFile(path, exported.contents, 'utf8');
+    const artifactId = randomUUID();
+    this.#interchange.putArtifact(artifactId, input.clientId, path, input.format);
+    return { artifactId, path, artifactUri: `kdenlive://interchange/artifacts/${artifactId}`, sourceRevision: handle.store.getProject().revision, targetVersion: exported.targetVersion, sha256: exported.sha256, fidelity: exported.fidelity };
+  }
+
+  async createInterchangePlan(input: {
+    readonly clientId: string;
+    readonly sourcePath: string;
+    readonly format: InterchangeFormat;
+    readonly mode: ImportPlanMode;
+    readonly projectId?: string;
+    readonly expectedRevision?: number;
+    readonly destinationPath?: string;
+    readonly destinationName?: string;
+  }) {
+    const sourcePath = this.resolveAllowed(input.sourcePath);
+    const contents = await readFile(sourcePath, 'utf8');
+    const parsed = parseInterchange(contents, input.format);
+    const current = input.projectId === undefined ? undefined : this.project(input.projectId);
+    if (input.mode === 'roundtrip' && (current === undefined || input.expectedRevision === undefined)) throw new TypeError('Round-trip import requires projectId and expectedRevision');
+    if (input.mode === 'new-project' && (input.destinationPath === undefined || input.destinationName === undefined)) throw new TypeError('New-project import requires destinationPath and destinationName');
+    const plan = buildImportPlan({ mode: input.mode, ...(current === undefined ? {} : { current }), parsed });
+    const id = randomUUID();
+    const destinationPath = input.destinationPath === undefined ? null : this.resolveAllowed(input.destinationPath);
+    this.#interchange.putPlan({ id, clientId: input.clientId, projectId: input.projectId ?? null, expectedRevision: input.expectedRevision ?? null, destinationPath, destinationName: input.destinationName ?? null, plan });
+    return { id, resourceUri: `kdenlive://interchange/plans/${id}`, ...plan };
+  }
+
+  interchangePlan(clientId: string, planId: string) { return this.#interchange.plan(planId, clientId); }
+
+  async applyInterchangePlan(input: { readonly clientId: string; readonly planId: string; readonly expectedRevision?: number }) {
+    const stored = this.#interchange.plan(input.planId, input.clientId);
+    if (!stored.plan.canApply) throw new Error('INTERCHANGE_IDENTITY_MISMATCH: import plan cannot be applied');
+    if (stored.plan.mode === 'roundtrip') {
+      if (stored.projectId === null || stored.expectedRevision === null || input.expectedRevision !== stored.expectedRevision) throw new Error('Interchange plan revision does not match the reviewed revision');
+      return await this.#handle(stored.projectId).store.mutate(() => stored.plan.project, { expectedRevision: input.expectedRevision, assistantId: input.clientId, operation: 'interchange_import_apply', changedIds: [stored.plan.project.id], warnings: stored.plan.fidelity.map((item) => item.code) });
+    }
+    if (stored.destinationPath === null || stored.destinationName === null) throw new Error('Interchange plan has no destination');
+    const imported = { ...structuredClone(stored.plan.project), id: randomUUID(), revision: 0, name: stored.destinationName, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const store = await ProjectStore.create(stored.destinationPath, imported);
+    const project = store.getProject();
+    this.#projects.set(project.id, { id: project.id, root: stored.destinationPath, store });
+    return project;
+  }
+
+  discardInterchangePlan(clientId: string, planId: string): void { this.#interchange.discard(planId, clientId); }
+
+  async readInterchangeArtifact(clientId: string, artifactId: string): Promise<Buffer> {
+    const artifact = this.#interchange.artifact(artifactId, clientId);
+    const details = await stat(artifact.path);
+    if (details.size > 32 * 1024 * 1024) throw new Error('Artifact exceeds 32 MiB resource limit');
+    return await readFile(artifact.path);
   }
 
   #handle(projectId: string): ProjectHandle {
