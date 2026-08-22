@@ -12,6 +12,15 @@ function argument(name: string): string | undefined {
   return index < 0 ? undefined : process.argv[index + 1];
 }
 
+function argumentsFor(name: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < process.argv.length; index += 1) {
+    const value = process.argv[index + 1];
+    if (process.argv[index] === name && value !== undefined) values.push(value);
+  }
+  return values;
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes('--version')) {
     process.stdout.write(`kdenlive-mcp ${APP_VERSION}\n`);
@@ -22,7 +31,7 @@ async function main(): Promise<void> {
 
 Usage: kdenlive-mcp [options]
 
-  --root <path>       Allowed project/media root (default: current directory)
+  --root <path>       Allowed project/media root; may be repeated (default: current directory)
   --state <path>      Durable server state directory
   --client-id <id>    Stable stdio ownership identity
   --http              Use authenticated loopback Streamable HTTP
@@ -70,13 +79,15 @@ Usage: kdenlive-mcp [options]
     import('./server.js'),
     import('./workspace.js'),
   ]);
-  const allowedRoot = resolve(argument('--root') ?? process.cwd());
+  const allowedRoots = argumentsFor('--root').map((root) => resolve(root));
+  if (allowedRoots.length === 0) allowedRoots.push(resolve(process.cwd()));
+  const allowedRoot = allowedRoots[0]!;
   const stateRoot = resolve(
     argument('--state') ?? join(allowedRoot, '.kdenlive-mcp'),
   );
   await mkdir(stateRoot, { recursive: true });
   const workspace = await WorkspaceService.create({
-    allowedRoots: [allowedRoot],
+    allowedRoots,
     stateRoot,
   });
   const shutdown = async (): Promise<void> => {
