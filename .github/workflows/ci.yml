@@ -64,7 +64,7 @@ jobs:
       - run: pnpm render:acceptance
       - run: pnpm mcp:acceptance
       - run: pnpm sample:milestone-6
-      - run: timeout --foreground 30s xvfb-run -a melt artifacts/milestone-6-sample/Kdenlive-MCP-Milestone-6.kdenlive in=0 out=0 -consumer null
+      - run: timeout --foreground 30s melt artifacts/milestone-6-sample/Kdenlive-MCP-Milestone-6.kdenlive -consumer xml:artifacts/milestone-6-sample/validated.mlt
       - run: pnpm package:release -- --platform linux
       - shell: bash
         run: |
