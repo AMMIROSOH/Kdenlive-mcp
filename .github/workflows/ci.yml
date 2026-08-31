@@ -54,7 +54,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg melt
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg melt xvfb xauth
       - run: pnpm install --frozen-lockfile
       - run: pnpm capabilities -- --output artifacts/capabilities-linux.json
       - run: pnpm fixtures:milestone-1 -- --require-runtime
@@ -64,7 +64,7 @@ jobs:
       - run: pnpm render:acceptance
       - run: pnpm mcp:acceptance
       - run: pnpm sample:milestone-6
-      - run: melt artifacts/milestone-6-sample/Kdenlive-MCP-Milestone-6.kdenlive -consumer null
+      - run: xvfb-run -a melt artifacts/milestone-6-sample/Kdenlive-MCP-Milestone-6.kdenlive -consumer null
       - run: pnpm package:release -- --platform linux
       - shell: bash
         run: |
