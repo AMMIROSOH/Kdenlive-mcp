@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0](https://github.com/AMMIROSOH/Kdenlive-mcp/compare/kdenlive-mcp-v1.0.1...kdenlive-mcp-v1.1.0) (2026-08-31)
+
+
+### Features
+
+* add Kdenlive interoperability [release] ([c2bf849](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/c2bf849d290d3092d6286ae4be14eb25bf04baad))
+* **captions:** add transcript caption workflow [release] ([a7109e4](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/a7109e4762c981da8a5598103f4b851f80233150))
+
+
+### Bug Fixes
+
+* avoid release asset upload races ([1213330](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/121333014e3eabd83712e427e35a5b4dd26109bf))
+* caption bugfixes ([e5f0984](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/e5f09847f083550369c289ca99d87176fbf34da7))
+* **ci:** run Linux render smoke under xvfb [release] ([9ee1175](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/9ee1175b6abde5d506608130dcd0ea91a3914edb))
+* generate Kdenlive main-bin metadata ([2eabb2c](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/2eabb2caeb0740fa6461e51c14d0aa49986c116b))
+* produce valid Kdenlive Gen-5 projects [release] ([f3a0ae4](https://github.com/AMMIROSOH/Kdenlive-mcp/commit/f3a0ae47d05d45026daa9e6b3fe53db6322cff5d))
+
 ## [1.0.1](https://github.com/AMMIROSOH/Kdenlive-mcp/compare/kdenlive-mcp-v1.0.0...kdenlive-mcp-v1.0.1) (2026-06-22)
 
 
