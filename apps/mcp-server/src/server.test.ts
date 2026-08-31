@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -277,6 +277,67 @@ describe('Milestone 4 MCP protocol', () => {
       }),
     );
     expect(nested.error?.code).toBe('TIMELINE_EDIT_INVALID');
+  });
+
+  it('exports Kdenlive captions as an atomic native subtitle sidecar bundle', async () => {
+    const { root, client } = await session();
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'subtitle-export'), name: 'Subtitles' },
+      }),
+    );
+    const projectId = String(created.data?.id);
+    const added = envelope(
+      await client.callTool({
+        name: 'caption_edit',
+        arguments: {
+          projectId,
+          expectedRevision: 0,
+          action: 'add',
+          items: [
+            {
+              start: 30,
+              end: 90,
+              text: 'Native subtitle',
+              style: { preset: 'default', position: 'bottom' },
+            },
+          ],
+        },
+      }),
+    );
+    expect(added.ok).toBe(true);
+
+    const exported = envelope(
+      await client.callTool({
+        name: 'interchange_export',
+        arguments: {
+          projectId,
+          format: 'kdenlive',
+          outputName: 'native-captions',
+        },
+      }),
+    );
+    expect(exported.ok).toBe(true);
+    const projectPath = String(exported.data?.path);
+    const sidecars = exported.data?.sidecars as
+      | { role: string; path: string; sha256: string }[]
+      | undefined;
+    expect(sidecars).toHaveLength(1);
+    expect(sidecars?.[0]).toMatchObject({
+      role: 'captions',
+      path: `${projectPath}.ass`,
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+
+    const [project, ass] = await Promise.all([
+      readFile(projectPath, 'utf8'),
+      readFile(String(sidecars?.[0]?.path), 'utf8'),
+    ]);
+    expect(project).toContain('avfilter.subtitles');
+    expect(project).toContain('native-captions.kdenlive.ass');
+    expect(project).not.toContain('mlt_service">qtext');
+    expect(ass).toContain('Dialogue: 0,0:00:01.00,0:00:03.00');
   });
 
   it('generates editable YouTube-style captions from transcript words', async () => {

@@ -12,8 +12,9 @@ exact executable or a containing directory. On Windows,
 ## MLT service missing
 
 Minimal MLT packages may omit Qt or avformat modules. Install a complete Kdenlive
-package. `qtext` is required for text/captions; `qtblend` and `mix` are required
-for video/audio composition.
+package. `qtext` is required for ordinary text overlays and
+`avfilter.subtitles` is required for editable Kdenlive captions; `qtblend` and
+`mix` are required for video/audio composition.
 
 ## MCP client shows no tools
 

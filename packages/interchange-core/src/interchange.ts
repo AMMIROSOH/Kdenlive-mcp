@@ -15,11 +15,22 @@ export interface FidelityIssue {
   readonly message: string;
   readonly entityId?: string;
 }
+export interface InterchangeSidecar {
+  readonly role: 'captions';
+  readonly fileName: string;
+  readonly contents: string;
+  readonly sha256: string;
+}
+export interface ExportInterchangeOptions {
+  /** A sibling filename referenced by a Kdenlive subtitle filter. */
+  readonly captionFileName?: string;
+}
 export interface InterchangeExport {
   readonly format: InterchangeFormat;
   readonly targetVersion: string;
   readonly contents: string;
   readonly sha256: string;
+  readonly sidecars: readonly InterchangeSidecar[];
   readonly fidelity: readonly FidelityIssue[];
 }
 export interface InterchangeParse {
@@ -41,6 +52,8 @@ const provenanceSchema = z
     target: z.string(),
   })
   .strict();
+
+const KNOWN_CAPTION_PRESETS = new Set(['default', 'youtube']);
 
 function escapeXml(value: string): string {
   return value
@@ -70,7 +83,20 @@ function fidelityFor(
   project: Project,
   format: InterchangeFormat,
 ): FidelityIssue[] {
-  if (format === 'kdenlive') return [];
+  if (format === 'kdenlive') {
+    return project.captions.flatMap((caption) =>
+      KNOWN_CAPTION_PRESETS.has(caption.style.preset)
+        ? []
+        : [
+            {
+              code: 'KDENLIVE_CAPTION_PRESET_FALLBACK',
+              severity: 'warning' as const,
+              message: `Caption preset ${caption.style.preset} is not supported by the Kdenlive subtitle exporter; default styling was used.`,
+              entityId: caption.id,
+            },
+          ],
+    );
+  }
   const issues: FidelityIssue[] = [];
   for (const item of [...project.texts, ...project.captions]) {
     issues.push({
@@ -92,6 +118,105 @@ function fidelityFor(
         });
     }
   return issues;
+}
+
+function assTimestamp(
+  frame: number,
+  project: Project,
+  rounding: 'floor' | 'ceil',
+) {
+  const numerator = frame * project.settings.fps.denominator * 100;
+  const centiseconds =
+    rounding === 'floor'
+      ? Math.floor(numerator / project.settings.fps.numerator)
+      : Math.ceil(numerator / project.settings.fps.numerator);
+  const hours = Math.floor(centiseconds / 360_000);
+  const minutes = Math.floor((centiseconds % 360_000) / 6_000);
+  const seconds = Math.floor((centiseconds % 6_000) / 100);
+  return `${String(hours)}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds % 100).padStart(2, '0')}`;
+}
+
+function assEscape(value: string): string {
+  return value
+    .replaceAll('\\', '\\\\')
+    .replaceAll('{', '\\{')
+    .replaceAll('}', '\\}')
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\r', '\n')
+    .replaceAll('\n', '\\N');
+}
+
+function assStyleName(preset: string, position: 'top' | 'center' | 'bottom') {
+  const slug =
+    preset.replaceAll(/[^A-Za-z0-9]+/gu, '_').replaceAll(/^_|_$/gu, '') ||
+    'default';
+  const hash = createHash('sha256')
+    .update(`${preset}\0${position}`)
+    .digest('hex')
+    .slice(0, 8);
+  return `MCP_${slug}_${position}_${hash}`;
+}
+
+function assStyleLine(
+  project: Project,
+  preset: string,
+  position: 'top' | 'center' | 'bottom',
+): string {
+  const width = project.settings.width;
+  const height = project.settings.height;
+  const alignment = position === 'top' ? 8 : position === 'center' ? 5 : 2;
+  const marginV = position === 'center' ? 0 : Math.round(height * 0.08);
+  const fontSize = Math.max(8, Math.round((48 * height) / 1080));
+  return `Style: ${assStyleName(preset, position)},Sans,${String(fontSize)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H60000000,0,0,0,0,100,100,0,0,3,0,0,${String(alignment)},${String(Math.round(width * 0.1))},${String(Math.round(width * 0.1))},${String(marginV)},1`;
+}
+
+function exportAssCaptions(project: Project): string {
+  const captions = [...project.captions].sort(
+    (a, b) => a.start - b.start || a.id.localeCompare(b.id),
+  );
+  const styleKeys = [
+    ...new Set(
+      captions.map(
+        (caption) => `${caption.style.preset}\0${caption.style.position}`,
+      ),
+    ),
+  ].sort();
+  const styles = styleKeys.map((key) => {
+    const [preset, position] = key.split('\0') as [
+      string,
+      'top' | 'center' | 'bottom',
+    ];
+    return assStyleLine(
+      project,
+      KNOWN_CAPTION_PRESETS.has(preset) ? preset : 'default',
+      position,
+    );
+  });
+  const events = captions.map((caption) => {
+    const start = assTimestamp(caption.start, project, 'floor');
+    const end = assTimestamp(caption.end, project, 'ceil');
+    const preset = KNOWN_CAPTION_PRESETS.has(caption.style.preset)
+      ? caption.style.preset
+      : 'default';
+    return `Dialogue: 0,${start},${end},${assStyleName(preset, caption.style.position)},,0,0,0,,${assEscape(caption.text)}`;
+  });
+  return [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    `PlayResX: ${String(project.settings.width)}`,
+    `PlayResY: ${String(project.settings.height)}`,
+    'WrapStyle: 0',
+    'ScaledBorderAndShadow: yes',
+    '',
+    '[V4+ Styles]',
+    'Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding',
+    ...styles,
+    '',
+    '[Events]',
+    'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text',
+    ...events,
+    '',
+  ].join('\n');
 }
 
 function otioTime(value: number, rate: number) {
@@ -210,7 +335,7 @@ function exportOtio(project: Project): string {
   )}\n`;
 }
 
-function exportKdenlive(project: Project): string {
+function exportKdenlive(project: Project, captionFileName: string): string {
   const duration = Math.max(
     1,
     ...project.tracks.flatMap((track) =>
@@ -265,29 +390,6 @@ function exportKdenlive(project: Project): string {
   const captions = [...project.captions].sort(
     (a, b) => a.start - b.start || a.id.localeCompare(b.id),
   );
-  const captionProducerLines = captions.flatMap((caption, index) => {
-    const captionDuration = caption.end - caption.start;
-    const verticalPosition =
-      caption.style.position === 'top'
-        ? '8%'
-        : caption.style.position === 'center'
-          ? '42%'
-          : '80%';
-    return [
-      `  <producer id="caption${String(index)}" in="0" out="${String(captionDuration - 1)}">`,
-      '    <property name="mlt_service">qtext</property>',
-      `    <property name="text">${escapeXml(caption.text)}</property>`,
-      '    <property name="fgcolour">0xffffffff</property>',
-      '    <property name="bgcolour">0x000000a0</property>',
-      '    <property name="family">Sans</property>',
-      `    <property name="size">${String(Math.max(8, Math.round((48 * project.settings.height) / 1080)))}</property>`,
-      `    <property name="geometry">10%/${verticalPosition}:80%x12%:100</property>`,
-      '    <property name="halign">center</property>',
-      '    <property name="valign">middle</property>',
-      `    <property name="kdenlive:clipname">Caption ${String(index + 1)}</property>`,
-      '  </producer>',
-    ];
-  });
   const timelineLines: string[] = [];
   tracks.forEach((track, trackIndex) => {
     const firstPlaylist = trackIndex * 2;
@@ -341,38 +443,9 @@ function exportKdenlive(project: Project): string {
       '  </tractor>',
     );
   });
-  const captionTrackIndex = tracks.length;
-  if (captions.length > 0) {
-    const captionPlaylist = `playlist${String(captionTrackIndex * 2)}`;
-    let cursor = 0;
-    timelineLines.push(`  <playlist id="${captionPlaylist}">`);
-    for (const [index, caption] of captions.entries()) {
-      if (caption.start > cursor)
-        timelineLines.push(
-          `    <blank length="${String(caption.start - cursor)}"/>`,
-        );
-      timelineLines.push(
-        `    <entry producer="caption${String(index)}" in="0" out="${String(caption.end - caption.start - 1)}"/>`,
-      );
-      cursor = caption.end;
-    }
-    timelineLines.push('  </playlist>');
-    timelineLines.push(
-      `  <playlist id="playlist${String(captionTrackIndex * 2 + 1)}"/>`,
-      `  <tractor id="tractor${String(captionTrackIndex)}" in="0" out="${String(duration - 1)}">`,
-      '    <property name="kdenlive:track_name">Captions</property>',
-      '    <property name="kdenlive:trackheight">67</property>',
-      '    <property name="kdenlive:timeline_active">1</property>',
-      '    <property name="kdenlive:collapsed">0</property>',
-      `    <track hide="audio" producer="${captionPlaylist}"/>`,
-      `    <track hide="audio" producer="playlist${String(captionTrackIndex * 2 + 1)}"/>`,
-      '  </tractor>',
-    );
-  }
   const hasAudio = tracks.some((track) => track.kind === 'audio');
-  const hasVideo =
-    tracks.some((track) => track.kind === 'video') || captions.length > 0;
-  const allTrackCount = tracks.length + (captions.length > 0 ? 1 : 0);
+  const hasVideo = tracks.some((track) => track.kind === 'video');
+  const allTrackCount = tracks.length;
   const sequenceLines = [
     `  <tractor id="${escapeXml(sequenceId)}" in="0" out="${String(duration - 1)}">`,
     `    <property name="kdenlive:uuid">${escapeXml(sequenceId)}</property>`,
@@ -394,9 +467,6 @@ function exportKdenlive(project: Project): string {
     ...tracks.map(
       (_, index) => `    <track producer="tractor${String(index)}"/>`,
     ),
-    ...(captions.length > 0
-      ? [`    <track producer="tractor${String(captionTrackIndex)}"/>`]
-      : []),
   ];
   tracks.forEach((track, index) => {
     const service = track.kind === 'video' ? 'qtblend' : 'mix';
@@ -416,17 +486,16 @@ function exportKdenlive(project: Project): string {
       '    </transition>',
     );
   });
-  if (captions.length > 0) {
+  if (captions.length > 0)
     sequenceLines.push(
-      `    <transition id="transition${String(captionTrackIndex)}">`,
-      '      <property name="a_track">0</property>',
-      `      <property name="b_track">${String(captionTrackIndex + 1)}</property>`,
-      '      <property name="mlt_service">qtblend</property>',
+      '    <filter id="filter-subtitles">',
+      '      <property name="mlt_service">avfilter.subtitles</property>',
       '      <property name="internal_added">237</property>',
-      '      <property name="always_active">1</property>',
-      '    </transition>',
+      `      <property name="av.filename">${escapeXml(captionFileName)}</property>`,
+      '      <property name="av.alpha">1</property>',
+      '      <property name="kdenlive:locked">1</property>',
+      '    </filter>',
     );
-  }
   sequenceLines.push('  </tractor>');
   const profileId =
     project.settings.width === 1920 &&
@@ -439,7 +508,6 @@ function exportKdenlive(project: Project): string {
     '<mlt LC_NUMERIC="C" version="7.40.0" producer="main_bin">',
     `  <profile description="${escapeXml(project.name)}" width="${String(project.settings.width)}" height="${String(project.settings.height)}" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="${String(project.settings.width)}" display_aspect_den="${String(project.settings.height)}" frame_rate_num="${String(fps.numerator)}" frame_rate_den="${String(fps.denominator)}" colorspace="709"/>`,
     ...producerLines,
-    ...captionProducerLines,
     `  <producer id="black_track" in="0" out="${String(duration - 1)}">`,
     '    <property name="length">2147483647</property>',
     '    <property name="eof">continue</property>',
@@ -571,15 +639,35 @@ function parseKdenlive(contents: string): InterchangeParse {
 export function exportInterchange(
   project: Project,
   format: InterchangeFormat,
+  options: ExportInterchangeOptions = {},
 ): InterchangeExport {
+  const captionFileName = options.captionFileName ?? 'captions.ass';
+  const sidecars: InterchangeSidecar[] =
+    format === 'kdenlive' && project.captions.length > 0
+      ? [
+          {
+            role: 'captions',
+            fileName: captionFileName,
+            contents: exportAssCaptions(project),
+            sha256: '',
+          },
+        ]
+      : [];
+  const finalizedSidecars = sidecars.map((sidecar) => ({
+    ...sidecar,
+    sha256: createHash('sha256').update(sidecar.contents).digest('hex'),
+  }));
   const contents =
-    format === 'otio' ? exportOtio(project) : exportKdenlive(project);
+    format === 'otio'
+      ? exportOtio(project)
+      : exportKdenlive(project, captionFileName);
   return {
     format,
     targetVersion:
       format === 'otio' ? 'OTIO 0.18.1' : 'Kdenlive 26.04.x / document 1.1',
     contents,
     sha256: createHash('sha256').update(contents).digest('hex'),
+    sidecars: finalizedSidecars,
     fidelity: fidelityFor(project, format),
   };
 }

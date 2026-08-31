@@ -64,6 +64,7 @@ export async function runDoctor(): Promise<DoctorReport> {
     ['producer', 'avformat', capabilities.mlt.producers],
     ['consumer', 'avformat', capabilities.mlt.consumers],
     ['filter', 'qtext', capabilities.mlt.filters],
+    ['filter', 'avfilter.subtitles', capabilities.mlt.filters],
     ['transition', 'qtblend', capabilities.mlt.transitions],
     ['transition', 'mix', capabilities.mlt.transitions],
   ] as const;

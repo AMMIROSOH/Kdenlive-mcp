@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
@@ -856,11 +864,41 @@ export class WorkspaceService {
     readonly outputName: string;
   }) {
     const handle = this.#handle(input.projectId);
-    const exported = exportInterchange(handle.store.getProject(), input.format);
     const extension = input.format === 'kdenlive' ? '.kdenlive' : '.otio';
     const path = this.#artifactPath(handle, input.outputName, extension);
+    const exported = exportInterchange(
+      handle.store.getProject(),
+      input.format,
+      {
+        captionFileName: `${basename(path)}.ass`,
+      },
+    );
     await mkdir(join(handle.root, 'artifacts'), { recursive: true });
-    await writeFile(path, exported.contents, 'utf8');
+    const sidecars = exported.sidecars.map((sidecar) => {
+      if (basename(sidecar.fileName) !== sidecar.fileName)
+        throw new Error('Interchange sidecar filename must not contain a path');
+      return { ...sidecar, path: join(dirname(path), sidecar.fileName) };
+    });
+    const pending = [
+      ...sidecars.map((sidecar) => ({
+        path: sidecar.path,
+        contents: sidecar.contents,
+      })),
+      { path, contents: exported.contents },
+    ].map((item) => ({
+      ...item,
+      temporary: `${item.path}.${randomUUID()}.tmp`,
+    }));
+    try {
+      for (const item of pending)
+        await writeFile(item.temporary, item.contents, 'utf8');
+      for (const item of pending) await rename(item.temporary, item.path);
+    } catch (error) {
+      await Promise.all(
+        pending.map(async (item) => await rm(item.temporary, { force: true })),
+      );
+      throw error;
+    }
     const artifactId = randomUUID();
     this.#interchange.putArtifact(
       artifactId,
@@ -875,6 +913,11 @@ export class WorkspaceService {
       sourceRevision: handle.store.getProject().revision,
       targetVersion: exported.targetVersion,
       sha256: exported.sha256,
+      sidecars: sidecars.map((sidecar) => ({
+        role: sidecar.role,
+        path: sidecar.path,
+        sha256: sidecar.sha256,
+      })),
       fidelity: exported.fidelity,
     };
   }
