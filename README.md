@@ -93,3 +93,4 @@ pnpm release:acceptance -- --platform windows
 
 Apache-2.0 for this repository. External Kdenlive/MLT/FFmpeg installations retain
 their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
