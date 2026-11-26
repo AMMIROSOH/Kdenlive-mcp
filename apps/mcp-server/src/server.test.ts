@@ -36,13 +36,17 @@ describe('Milestone 4 MCP protocol', () => {
     while (cleanup.length > 0) await cleanup.pop()?.();
   });
 
-  async function session(clientId = 'client-a') {
+  async function session(
+    clientId = 'client-a',
+    projectPolicy: 'exclusive' | 'shared' | 'read-only-shared' = 'exclusive',
+  ) {
     const root = await mkdtemp(join(tmpdir(), 'kdenlive-mcp-server-'));
     const workspace = await WorkspaceService.create({
       allowedRoots: [root],
       stateRoot: join(root, '.state'),
       meltPath: process.execPath,
       ffmpegPath: process.execPath,
+      projectPolicy,
     });
     const server = createMcpServer({ workspace, clientId });
     const client = new Client({ name: 'test-client', version: '1.0.0' });
@@ -57,6 +61,20 @@ describe('Milestone 4 MCP protocol', () => {
       await rm(root, { recursive: true, force: true });
     });
     return { root, workspace, client };
+  }
+
+  async function peer(workspace: WorkspaceService, clientId: string) {
+    const server = createMcpServer({ workspace, clientId });
+    const client = new Client({ name: 'peer-client', version: '1.0.0' });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    cleanup.push(async () => {
+      await client.close();
+      await server.close();
+    });
+    return client;
   }
 
   it('publishes tools/resources and enforces revisioned edits', async () => {
@@ -520,6 +538,200 @@ describe('Milestone 4 MCP protocol', () => {
     jobs.close();
   });
 
+  it('enforces exclusive project ownership between clients', async () => {
+    const { root, workspace, client } = await session('owner', 'exclusive');
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'exclusive-project'), name: 'Exclusive' },
+      }),
+    );
+    expect(created.ok).toBe(true);
+
+    const other = await peer(workspace, 'secondary');
+    const opened = envelope(
+      await other.callTool({
+        name: 'project_open',
+        arguments: { path: join(root, 'exclusive-project') },
+      }),
+    );
+    expect(opened).toMatchObject({
+      ok: false,
+      error: { code: 'PROJECT_FORBIDDEN' },
+    });
+  });
+
+  it('allows secondary clients to read and write shared projects', async () => {
+    const { root, workspace, client } = await session('owner', 'shared');
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'shared-project'), name: 'Shared' },
+      }),
+    );
+    expect(created.ok).toBe(true);
+    const projectId = String(created.data?.id);
+
+    const other = await peer(workspace, 'secondary');
+    const opened = envelope(
+      await other.callTool({
+        name: 'project_open',
+        arguments: { path: join(root, 'shared-project') },
+      }),
+    );
+    expect(opened.ok).toBe(true);
+
+    const read = envelope(
+      await other.callTool({
+        name: 'project_get',
+        arguments: { projectId },
+      }),
+    );
+    expect(read.ok).toBe(true);
+
+    const edited = envelope(
+      await other.callTool({
+        name: 'timeline_add_track',
+        arguments: {
+          projectId,
+          expectedRevision: 0,
+          kind: 'video',
+          name: 'Shared V1',
+        },
+      }),
+    );
+    expect(edited.ok).toBe(true);
+    expect(edited.data?.revision).toBe(1);
+  });
+
+  it('allows secondary reads but denies writes in read-only-shared projects', async () => {
+    const { root, workspace, client } = await session(
+      'owner',
+      'read-only-shared',
+    );
+    const created = envelope(
+      await client.callTool({
+        name: 'project_create',
+        arguments: { path: join(root, 'readonly-project'), name: 'Read only' },
+      }),
+    );
+    expect(created.ok).toBe(true);
+    const projectId = String(created.data?.id);
+
+    const other = await peer(workspace, 'secondary');
+    const opened = envelope(
+      await other.callTool({
+        name: 'project_open',
+        arguments: { path: join(root, 'readonly-project') },
+      }),
+    );
+    expect(opened.ok).toBe(true);
+
+    const read = envelope(
+      await other.callTool({
+        name: 'project_get',
+        arguments: { projectId },
+      }),
+    );
+    expect(read.ok).toBe(true);
+
+    const denied = envelope(
+      await other.callTool({
+        name: 'project_checkpoint',
+        arguments: { projectId, name: 'secondary-checkpoint' },
+      }),
+    );
+    expect(denied).toMatchObject({
+      ok: false,
+      error: { code: 'PROJECT_READ_ONLY' },
+    });
+
+    const ownerWrite = envelope(
+      await client.callTool({
+        name: 'project_checkpoint',
+        arguments: { projectId, name: 'owner-checkpoint' },
+      }),
+    );
+    expect(ownerWrite.ok).toBe(true);
+  });
+
+  it('preserves project ownership across service restarts and policy changes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kdenlive-mcp-persistence-'));
+    const stateRoot = join(root, '.state');
+    let workspace: WorkspaceService | undefined = await WorkspaceService.create(
+      {
+        allowedRoots: [root],
+        stateRoot,
+        meltPath: process.execPath,
+        ffmpegPath: process.execPath,
+        projectPolicy: 'exclusive',
+      },
+    );
+
+    try {
+      const created = await workspace.createProject({
+        path: join(root, 'persistent-project'),
+        name: 'Persistent owner',
+        clientId: 'owner',
+      });
+      expect(created.id).toBeTruthy();
+      await workspace.close();
+      workspace = undefined;
+      workspace = await WorkspaceService.create({
+        allowedRoots: [root],
+        stateRoot,
+        meltPath: process.execPath,
+        ffmpegPath: process.execPath,
+        projectPolicy: 'shared',
+      });
+      const sharedProject = await workspace.openProject(
+        join(root, 'persistent-project'),
+        'secondary',
+      );
+      expect(sharedProject.id).toBe(created.id);
+      await workspace.close();
+      workspace = undefined;
+
+      workspace = await WorkspaceService.create({
+        allowedRoots: [root],
+        stateRoot,
+        meltPath: process.execPath,
+        ffmpegPath: process.execPath,
+        projectPolicy: 'read-only-shared',
+      });
+      await workspace.openProject(
+        join(root, 'persistent-project'),
+        'secondary',
+      );
+      expect(() =>
+        workspace!.checkpoint(created.id, 'secondary-checkpoint', 'secondary'),
+      ).toThrow('Project is shared as read-only for this client');
+      expect(() =>
+        workspace!.checkpoint(created.id, 'owner-checkpoint', 'owner'),
+      ).not.toThrow();
+      await workspace.close();
+      workspace = undefined;
+
+      workspace = await WorkspaceService.create({
+        allowedRoots: [root],
+        stateRoot,
+        meltPath: process.execPath,
+        ffmpegPath: process.execPath,
+        projectPolicy: 'exclusive',
+      });
+      await expect(
+        workspace.openProject(join(root, 'persistent-project'), 'secondary'),
+      ).rejects.toThrow('Project belongs to another client');
+      const ownerProject = await workspace.openProject(
+        join(root, 'persistent-project'),
+        'owner',
+      );
+      expect(ownerProject.id).toBe(created.id);
+    } finally {
+      if (workspace !== undefined) await workspace.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('blocks root escapes, unsafe artifact names, and cross-client job access', async () => {
     const { root, workspace, client } = await session('owner-a');
     const outside = envelope(
