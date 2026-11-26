@@ -269,6 +269,10 @@ function errorCode(error: unknown): string {
   if (error.name === 'MeltBusyError') return 'MELT_BUSY';
   if (error.message.includes('outside configured roots'))
     return 'PATH_OUTSIDE_ROOTS';
+  if (error.message === 'Project belongs to another client')
+    return 'PROJECT_FORBIDDEN';
+  if (error.message === 'Project is shared as read-only for this client')
+    return 'PROJECT_READ_ONLY';
   if (error.message.includes('another client')) return 'JOB_FORBIDDEN';
   if (error.message.includes('not found') || error.message.includes('not open'))
     return 'NOT_FOUND';
@@ -337,7 +341,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         name: z.string().min(1).max(200),
         settings: projectSettingsOverridesSchema.optional(),
       },
-      annotations: { destructiveHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ path, name, settings }) =>
       await guarded(
@@ -345,6 +353,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
           await workspace.createProject({
             path,
             name,
+            clientId,
             settings: resolveProjectSettings(settings),
           }),
       ),
@@ -355,10 +364,10 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
     {
       description: 'Open a project store inside an allowed root.',
       inputSchema: { path: z.string().min(1).max(1_024) },
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async ({ path }) =>
-      await guarded(async () => await workspace.openProject(path)),
+      await guarded(async () => await workspace.openProject(path, clientId)),
   );
 
   server.registerTool(
@@ -368,7 +377,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       inputSchema: { projectId },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    ({ projectId: id }) => guarded(() => workspace.project(id)),
+    ({ projectId: id }) => guarded(() => workspace.project(id, clientId)),
   );
 
   server.registerTool(
@@ -378,7 +387,8 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       inputSchema: { projectId },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    ({ projectId: id }) => guarded(async () => await workspace.validate(id)),
+    ({ projectId: id }) =>
+      guarded(async () => await workspace.validate(id, clientId)),
   );
 
   server.registerTool(
@@ -386,9 +396,14 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
     {
       description: 'Create or replace a named checkpoint.',
       inputSchema: { projectId, name: z.string().min(1).max(100) },
-      annotations: { destructiveHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
-    ({ projectId: id, name }) => guarded(() => workspace.checkpoint(id, name)),
+    ({ projectId: id, name }) =>
+      guarded(() => workspace.checkpoint(id, name, clientId)),
   );
 
   server.registerTool(
@@ -400,7 +415,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         name: z.string().min(1).max(100),
         expectedRevision,
       },
-      annotations: { destructiveHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
     },
     ({ projectId: id, name, expectedRevision: revision }) =>
       guarded(
@@ -418,7 +437,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       {
         description: `${action === 'undo' ? 'Undo' : 'Redo'} this client's latest eligible mutation.`,
         inputSchema: { projectId, expectedRevision },
-        annotations: { destructiveHint: true, openWorldHint: false },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          openWorldHint: false,
+        },
       },
       ({ projectId: id, expectedRevision: revision }) =>
         guarded(async () =>
@@ -440,7 +463,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         paths: z.array(z.string().min(1).max(1_024)).min(1).max(1_000),
         mode: z.enum(['external', 'managed']),
       },
-      annotations: { destructiveHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
     ({ projectId: id, expectedRevision: revision, paths, mode }) =>
       guarded(
@@ -462,7 +489,8 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       inputSchema: { projectId },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    ({ projectId: id }) => guarded(() => workspace.project(id).assets),
+    ({ projectId: id }) =>
+      guarded(() => workspace.project(id, clientId).assets),
   );
 
   server.registerTool(
@@ -475,7 +503,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
     ({ projectId: id, assetId }) =>
       guarded(() => {
         const asset = workspace
-          .project(id)
+          .project(id, clientId)
           .assets.find((candidate) => candidate.id === assetId);
         if (asset === undefined) throw new Error(`Asset not found: ${assetId}`);
         return asset;
@@ -494,6 +522,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         workspace.timeline(
           id,
           (queryOptions ?? {}) as Parameters<typeof workspace.timeline>[1],
+          clientId,
         ),
       ),
   );
@@ -524,7 +553,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       {
         description,
         inputSchema: { projectId, expectedRevision, ...shape },
-        annotations: { destructiveHint: true, openWorldHint: false },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          openWorldHint: false,
+        },
       },
       callback as never,
     );
@@ -777,11 +810,15 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         format: z.enum(['srt', 'vtt']),
         outputName: z.string().min(1).max(128),
       },
-      annotations: { destructiveHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
     ({ projectId: id, format, outputName }) =>
       guarded(async () => {
-        const project = workspace.project(id);
+        const project = workspace.project(id, clientId);
         const contents =
           format === 'srt'
             ? exportSrt(project.captions, project.settings.fps)
@@ -791,6 +828,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
           outputName,
           contents,
           format === 'srt' ? '.srt' : '.vtt',
+          clientId,
         );
       }),
   );
@@ -805,7 +843,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         format: z.enum(['kdenlive', 'otio']),
         outputName: z.string().min(1).max(128),
       },
-      annotations: { destructiveHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
     ({ projectId: id, format, outputName }) =>
       guarded(
@@ -824,7 +866,7 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       description:
         'Parse a Kdenlive or OTIO file and create a client-owned reviewed import plan. It does not mutate any project.',
       inputSchema: interchangePlanSchema,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, openWorldHint: false },
     },
     (input) =>
       guarded(async () => {
@@ -857,7 +899,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         expectedRevision: expectedRevision.optional(),
         confirm: z.literal(true),
       },
-      annotations: { destructiveHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
     },
     ({ planId, expectedRevision: revision }) =>
       guarded(
@@ -875,7 +921,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
       description:
         'Discard a client-owned reviewed interchange plan without applying it.',
       inputSchema: { planId: z.string().uuid() },
-      annotations: { destructiveHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
     },
     ({ planId }) =>
       guarded(() => {
@@ -897,7 +947,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         maxCaptionCharactersPerSecond: z.number().min(1).max(80).optional(),
         shortClipFrames: z.number().int().min(1).max(10_000).optional(),
       },
-      annotations: { destructiveHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
     ({
       projectId: id,
@@ -935,7 +989,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         outputName: z.string().min(1).max(128),
         maxAttempts: z.number().int().min(1).max(5).default(1),
       },
-      annotations: { destructiveHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
     ({ projectId: id, profileId, outputName, maxAttempts }) =>
       guarded(
@@ -960,7 +1018,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
         start: z.number().int().nonnegative(),
         end: z.number().int().positive().optional(),
       },
-      annotations: { destructiveHint: false, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
     ({ projectId: id, kind, start, end }) =>
       guarded(
@@ -990,13 +1052,14 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
           .max(12)
           .optional(),
       },
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, openWorldHint: false },
     },
     ({ projectId: id, kind, start, end, frames }) =>
       guarded(
         async () =>
           await workspace.directPreview({
             projectId: id,
+            clientId,
             kind,
             ...(start === undefined ? {} : { start }),
             ...(end === undefined ? {} : { end }),
@@ -1048,7 +1111,11 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
     {
       description: 'Cancel an owned queued or running job.',
       inputSchema: { jobId: entityId },
-      annotations: { destructiveHint: true, openWorldHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
     },
     ({ jobId }) => guarded(() => workspace.cancelJob(clientId, jobId)),
   );
@@ -1235,7 +1302,9 @@ export function createMcpServer(options: ServerSessionOptions): McpServer {
           {
             uri: uri.href,
             mimeType: 'application/json',
-            text: JSON.stringify(workspace.timeline(id, { limit: 100 })),
+            text: JSON.stringify(
+              workspace.timeline(id, { limit: 100 }, clientId),
+            ),
           },
         ],
       };

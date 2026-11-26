@@ -34,6 +34,7 @@ Usage: kdenlive-mcp [options]
   --root <path>       Allowed project/media root; may be repeated (default: current directory)
   --state <path>      Durable server state directory
   --client-id <id>    Stable stdio ownership identity
+  --project-policy <policy>  exclusive, shared, or read-only-shared
   --http              Use authenticated loopback Streamable HTTP
   --port <number>     HTTP port (default: operating-system assigned)
   --token-file <path> HTTP bearer-token file
@@ -85,10 +86,23 @@ Usage: kdenlive-mcp [options]
   const stateRoot = resolve(
     argument('--state') ?? join(allowedRoot, '.kdenlive-mcp'),
   );
+  const projectPolicy = argument('--project-policy') ?? 'exclusive';
+
+  if (
+    projectPolicy !== 'exclusive' &&
+    projectPolicy !== 'shared' &&
+    projectPolicy !== 'read-only-shared'
+  ) {
+    throw new Error(
+      `Invalid project policy: ${projectPolicy}. Valid policies: exclusive, shared, read-only-shared`,
+    );
+  }
+
   await mkdir(stateRoot, { recursive: true });
   const workspace = await WorkspaceService.create({
     allowedRoots,
     stateRoot,
+    projectPolicy,
   });
   const shutdown = async (): Promise<void> => {
     await workspace.close();

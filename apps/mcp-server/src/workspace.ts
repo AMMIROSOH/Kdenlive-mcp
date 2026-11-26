@@ -94,6 +94,10 @@ class JobOwnershipStore {
         client_id TEXT NOT NULL,
         metadata_json TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS project_owners(
+        project_id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL
+      );
     `);
   }
 
@@ -126,10 +130,51 @@ class JobOwnershipStore {
     return rows.map((row) => row.job_id);
   }
 
+  registerProjectOwner(projectId: string, clientId: string): string {
+    this.#database
+      .prepare(
+        'INSERT OR IGNORE INTO project_owners(project_id,client_id) VALUES(?,?)',
+      )
+      .run(projectId, clientId);
+
+    const row = this.#database
+      .prepare('SELECT client_id FROM project_owners WHERE project_id=?')
+      .get(projectId) as { readonly client_id: string } | undefined;
+
+    if (row === undefined)
+      throw new Error(`Could not register project owner: ${projectId}`);
+
+    return row.client_id;
+  }
+
+  assertProjectAccess(
+    projectId: string,
+    clientId: string,
+    policy: ProjectAccessPolicy,
+    mode: 'read' | 'write',
+  ): void {
+    const row = this.#database
+      .prepare('SELECT client_id FROM project_owners WHERE project_id=?')
+      .get(projectId) as { readonly client_id: string } | undefined;
+
+    if (row === undefined)
+      throw new Error(`Project has no registered owner: ${projectId}`);
+
+    if (row.client_id === clientId) return;
+
+    if (policy === 'exclusive')
+      throw new Error('Project belongs to another client');
+
+    if (policy === 'read-only-shared' && mode === 'write')
+      throw new Error('Project is shared as read-only for this client');
+  }
+
   close(): void {
     this.#database.close();
   }
 }
+
+export type ProjectAccessPolicy = 'exclusive' | 'shared' | 'read-only-shared';
 
 interface StoredInterchangePlan {
   readonly id: string;
@@ -412,6 +457,7 @@ class TimelineDiagnosticStore {
 export interface WorkspaceOptions {
   readonly allowedRoots: readonly string[];
   readonly stateRoot: string;
+  readonly projectPolicy?: ProjectAccessPolicy;
   readonly meltPath?: string;
   readonly ffmpegPath?: string;
 }
@@ -419,6 +465,7 @@ export interface WorkspaceOptions {
 export class WorkspaceService {
   readonly allowedRoots: readonly string[];
   readonly stateRoot: string;
+  readonly projectPolicy: ProjectAccessPolicy;
   readonly #projects = new Map<string, ProjectHandle>();
   readonly #jobs: RenderJobManager;
   readonly #owners: JobOwnershipStore;
@@ -431,6 +478,7 @@ export class WorkspaceService {
   private constructor(options: WorkspaceOptions) {
     this.allowedRoots = options.allowedRoots.map((root) => resolve(root));
     this.stateRoot = resolve(options.stateRoot);
+    this.projectPolicy = options.projectPolicy ?? 'exclusive';
     const meltCoordinator = new MeltExecutionCoordinator({
       lockPath: join(this.stateRoot, 'melt.lock'),
     });
@@ -492,6 +540,7 @@ export class WorkspaceService {
   async createProject(input: {
     readonly path: string;
     readonly name: string;
+    readonly clientId: string;
     readonly settings?: ProjectSettings;
   }): Promise<Project> {
     const root = this.resolveAllowed(input.path);
@@ -499,37 +548,55 @@ export class WorkspaceService {
       ...(input.settings === undefined ? {} : { settings: input.settings }),
     });
     const store = await ProjectStore.create(root, project);
-    this.#projects.set(project.id, { id: project.id, root, store });
-    return store.getProject();
+    try {
+      this.#owners.registerProjectOwner(project.id, input.clientId);
+      this.#projects.set(project.id, { id: project.id, root, store });
+      return store.getProject();
+    } catch (error) {
+      store.close();
+      throw error;
+    }
   }
 
-  async openProject(path: string): Promise<Project> {
+  async openProject(path: string, clientId: string): Promise<Project> {
     const root = this.resolveAllowed(path);
     const store = await ProjectStore.open(root);
     const project = store.getProject();
-    const previous = this.#projects.get(project.id);
-    if (previous !== undefined) {
+    try {
+      this.#owners.registerProjectOwner(project.id, clientId);
+      this.#owners.assertProjectAccess(
+        project.id,
+        clientId,
+        this.projectPolicy,
+        'read',
+      );
+      const previous = this.#projects.get(project.id);
+      if (previous !== undefined) {
+        store.close();
+        return previous.store.getProject();
+      }
+      this.#projects.set(project.id, { id: project.id, root, store });
+      return project;
+    } catch (error) {
       store.close();
-      return previous.store.getProject();
+      throw error;
     }
-    this.#projects.set(project.id, { id: project.id, root, store });
-    return project;
   }
 
-  project(projectId: string): Project {
-    return this.#handle(projectId).store.getProject();
+  project(projectId: string, clientId: string): Project {
+    return this.#handle(projectId, clientId, 'read').store.getProject();
   }
 
-  projectRoot(projectId: string): string {
-    return this.#handle(projectId).root;
+  projectRoot(projectId: string, clientId: string): string {
+    return this.#handle(projectId, clientId, 'read').root;
   }
 
-  async validate(projectId: string) {
-    return await validateProject(this.project(projectId));
+  async validate(projectId: string, clientId: string) {
+    return await validateProject(this.project(projectId, clientId));
   }
 
-  timeline(projectId: string, options: TimelineQueryOptions) {
-    return queryTimeline(this.project(projectId), options);
+  timeline(projectId: string, options: TimelineQueryOptions, clientId: string) {
+    return queryTimeline(this.project(projectId, clientId), options);
   }
 
   async mutate(
@@ -539,7 +606,7 @@ export class WorkspaceService {
     operation: string,
     edit: (project: Project) => Promise<EditResult>,
   ) {
-    const handle = this.#handle(projectId);
+    const handle = this.#handle(projectId, clientId, 'write');
     const result = await edit(handle.store.getProject());
     return await commitEdit(handle.store, result, {
       expectedRevision,
@@ -548,8 +615,8 @@ export class WorkspaceService {
     });
   }
 
-  checkpoint(projectId: string, name: string): void {
-    this.#handle(projectId).store.createCheckpoint(name);
+  checkpoint(projectId: string, name: string, clientId: string): void {
+    this.#handle(projectId, clientId, 'write').store.createCheckpoint(name);
   }
 
   async restoreCheckpoint(
@@ -558,7 +625,11 @@ export class WorkspaceService {
     expectedRevision: number,
     clientId: string,
   ) {
-    return await this.#handle(projectId).store.restoreCheckpoint(name, {
+    return await this.#handle(
+      projectId,
+      clientId,
+      'write',
+    ).store.restoreCheckpoint(name, {
       expectedRevision,
       assistantId: clientId,
       operation: 'checkpoint_restore',
@@ -566,11 +637,17 @@ export class WorkspaceService {
   }
 
   async undo(projectId: string, expectedRevision: number, clientId: string) {
-    return await this.#handle(projectId).store.undo(clientId, expectedRevision);
+    return await this.#handle(projectId, clientId, 'write').store.undo(
+      clientId,
+      expectedRevision,
+    );
   }
 
   async redo(projectId: string, expectedRevision: number, clientId: string) {
-    return await this.#handle(projectId).store.redo(clientId, expectedRevision);
+    return await this.#handle(projectId, clientId, 'write').store.redo(
+      clientId,
+      expectedRevision,
+    );
   }
 
   async importMedia(input: {
@@ -580,7 +657,7 @@ export class WorkspaceService {
     readonly paths: readonly string[];
     readonly mode: 'external' | 'managed';
   }) {
-    const handle = this.#handle(input.projectId);
+    const handle = this.#handle(input.projectId, input.clientId, 'write');
     const ingestor = new MediaIngestor(
       new FfprobeRunner(resolveRuntimeExecutable('ffprobe'), 'mcp-server-v1'),
     );
@@ -616,7 +693,7 @@ export class WorkspaceService {
     readonly clientId: string;
     readonly maxAttempts?: number;
   }): Promise<RenderJob> {
-    const handle = this.#handle(input.projectId);
+    const handle = this.#handle(input.projectId, input.clientId, 'write');
     const project = handle.store.getProject();
     const profile = BUILTIN_EXPORT_PROFILES.find(
       (candidate) => candidate.id === input.profileId,
@@ -666,7 +743,7 @@ export class WorkspaceService {
     readonly end?: number;
   }): Promise<RenderJob> {
     if (this.#jobs.hasActiveExports()) throw new MeltBusyError();
-    const handle = this.#handle(input.projectId);
+    const handle = this.#handle(input.projectId, input.clientId, 'write');
     const project = handle.store.getProject();
     const compiled = await compileProject(project, {
       projectRoot: handle.root,
@@ -734,13 +811,14 @@ export class WorkspaceService {
 
   async directPreview(input: {
     readonly projectId: string;
+    readonly clientId: string;
     readonly kind: 'waveform' | 'contact-sheet';
     readonly start?: number;
     readonly end?: number;
     readonly frames?: readonly number[];
   }) {
     if (this.#jobs.hasActiveExports()) throw new MeltBusyError();
-    const handle = this.#handle(input.projectId);
+    const handle = this.#handle(input.projectId, input.clientId, 'write');
     const project = handle.store.getProject();
     if (input.kind === 'waveform') {
       return await this.#previews.renderWaveform(
@@ -830,8 +908,9 @@ export class WorkspaceService {
     outputName: string,
     contents: string,
     extension: '.srt' | '.vtt',
+    clientId: string,
   ) {
-    const handle = this.#handle(projectId);
+    const handle = this.#handle(projectId, clientId, 'write');
     const path = this.#artifactPath(handle, outputName, extension);
     await mkdir(join(handle.root, 'artifacts'), { recursive: true });
     await writeFile(path, contents, 'utf8');
@@ -845,7 +924,7 @@ export class WorkspaceService {
   }): TimelineDiagnosticJob {
     return this.#timelineDiagnostics.submit(
       input.clientId,
-      this.project(input.projectId),
+      this.#handle(input.projectId, input.clientId, 'write').store.getProject(),
       input.options ?? {},
     );
   }
@@ -863,7 +942,7 @@ export class WorkspaceService {
     readonly format: InterchangeFormat;
     readonly outputName: string;
   }) {
-    const handle = this.#handle(input.projectId);
+    const handle = this.#handle(input.projectId, input.clientId, 'write');
     const extension = input.format === 'kdenlive' ? '.kdenlive' : '.otio';
     const path = this.#artifactPath(handle, input.outputName, extension);
     const exported = exportInterchange(
@@ -936,7 +1015,13 @@ export class WorkspaceService {
     const contents = await readFile(sourcePath, 'utf8');
     const parsed = parseInterchange(contents, input.format);
     const current =
-      input.projectId === undefined ? undefined : this.project(input.projectId);
+      input.projectId === undefined
+        ? undefined
+        : this.#handle(
+            input.projectId,
+            input.clientId,
+            'write',
+          ).store.getProject();
     if (
       input.mode === 'roundtrip' &&
       (current === undefined || input.expectedRevision === undefined)
@@ -997,16 +1082,17 @@ export class WorkspaceService {
         throw new Error(
           'Interchange plan revision does not match the reviewed revision',
         );
-      return await this.#handle(stored.projectId).store.mutate(
-        () => stored.plan.project,
-        {
-          expectedRevision: input.expectedRevision,
-          assistantId: input.clientId,
-          operation: 'interchange_import_apply',
-          changedIds: [stored.plan.project.id],
-          warnings: stored.plan.fidelity.map((item) => item.code),
-        },
-      );
+      return await this.#handle(
+        stored.projectId,
+        input.clientId,
+        'write',
+      ).store.mutate(() => stored.plan.project, {
+        expectedRevision: input.expectedRevision,
+        assistantId: input.clientId,
+        operation: 'interchange_import_apply',
+        changedIds: [stored.plan.project.id],
+        warnings: stored.plan.fidelity.map((item) => item.code),
+      });
     }
     if (stored.destinationPath === null || stored.destinationName === null)
       throw new Error('Interchange plan has no destination');
@@ -1020,6 +1106,12 @@ export class WorkspaceService {
     };
     const store = await ProjectStore.create(stored.destinationPath, imported);
     const project = store.getProject();
+    try {
+      this.#owners.registerProjectOwner(project.id, input.clientId);
+    } catch (error) {
+      store.close();
+      throw error;
+    }
     this.#projects.set(project.id, {
       id: project.id,
       root: stored.destinationPath,
@@ -1043,10 +1135,20 @@ export class WorkspaceService {
     return await readFile(artifact.path);
   }
 
-  #handle(projectId: string): ProjectHandle {
+  #handle(
+    projectId: string,
+    clientId: string,
+    mode: 'read' | 'write' = 'read',
+  ): ProjectHandle {
     const handle = this.#projects.get(projectId);
     if (handle === undefined)
       throw new Error(`Project is not open: ${projectId}`);
+    this.#owners.assertProjectAccess(
+      projectId,
+      clientId,
+      this.projectPolicy,
+      mode,
+    );
     return handle;
   }
 
